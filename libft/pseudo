@@ -1,0 +1,22 @@
+libft/
+├── Makefile ✅
+├── libft.h {...}
+├── ft_char_1.c      (isalpha, isdigit, isalnum, isascii, isprint) ✅
+├── ft_char_2.c      (toupper, tolower) ✅
+├── ft_string_1.c    (strlen, strchr, strrchr, strncmp) ✅
+├── ft_string_2.c    (strlcpy, strlcat, strnstr, strdup) ✅
+├── ft_memory_1.c    (memset, bzero, memcpy, memmove, memchr) ✅
+├── ft_memory_1.c    (memcmp) ✅
+├── ft_alloc.c       (calloc) ✅
+├── ft_convert.c     (!atoi, itoa) ✅
+├── ft_substr.c      (!ft_substr) ✅
+├── ft_join_trim.c   (ft_strjoin, ft_strtrim) ✅
+├── ft_split.c       (ft_split) ✅
+├── ft_strmap.c      (ft_strmapi, ft_striteri) ✅
+├── ft_put_fd.c      (ft_putchar_fd, ft_putstr_fd,
+│                     ft_putendl_fd, ft_putnbr_fd) ✅
+├── ft_lst_new.c     (ft_lstnew, ft_lstadd_front) ✅
+├── ft_lst_utils.c   (ft_lstsize, ft_lstlast, ft_lstadd_back) ✅
+├── ft_lst_clear.c   (ft_lstdelone, ft_lstclear) ✅
+├── ft_lst_iter.c    (ft_lstiter, ft_lstmap) ✅
+└── (eventuali main di test, MA NON pushati)
