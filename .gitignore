@@ -1,0 +1,22 @@
+# Compiled C files
+*.o
+*.a
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code files
+CLAUDE.md
+.claude/
+
+# Editor files
+*.swp
+*.swo
+.vscode/
+.idea/
