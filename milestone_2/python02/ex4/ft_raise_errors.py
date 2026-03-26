@@ -53,4 +53,4 @@ def test_plant_checks():
 if __name__ == "__main__":
     print("=== Garden Plant Health Checker ===\n")
     test_plant_checks()
-    print("\nAll error raising tests completed.")
+    print("All error raising tests completed.")
