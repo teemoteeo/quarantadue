@@ -5,7 +5,7 @@ if __name__ == "__main__":
     print("\nInitializing new storage unit: new_discovery.txt")
     print("Storage unit created successfully...")
     print("\nInscribing preservation data...")
-   
+
     with open("new_discovery.txt", "w") as f:
         entries = [
             "[ENTRY 001] New quantum algorithm discovered",

@@ -1,0 +1,4 @@
+*
+!.gitignore
+!ex*/
+!ex*/*.py
