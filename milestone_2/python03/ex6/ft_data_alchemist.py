@@ -18,5 +18,9 @@ if __name__ == "__main__":
     print(f"\nScore dict: {scorebook}")
     media = (sum(scorebook.values())/len(scorebook))
     print(f"Score average is {media:.2f}")
-    high_scores = {player: score for player, score in scorebook.items() if score > media}
+    high_scores = {
+            player: score
+            for player, score in scorebook.items()
+            if score > media
+            }
     print(f"High scores: {high_scores}")

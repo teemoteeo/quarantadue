@@ -18,6 +18,8 @@ def crisis_handler(filename: str) -> None:
         print(f"CRISIS ALERT: Attempting access to '{filename}'...")
         print("RESPONSE: Security protocols deny access")
         print("STATUS: Crisis handled, security maintained\n")
+    finally:
+        print("All crisis scenarios handled successfully. Archives secure.")
 
 
 if __name__ == "__main__":
@@ -30,5 +32,3 @@ if __name__ == "__main__":
     crisis_handler("lost_archive.txt")
     crisis_handler("classified_vault.txt")
     crisis_handler("standard_archive.txt")
-
-    print("All crisis scenarios handled successfully. Archives secure.")

@@ -65,7 +65,8 @@ class ProcessingPipeline(ABC):
                 if i < len(self.backup_stages):
                     print("Recovery initiated: Switching to backup processor")
                     result = self.backup_stages[i].process(result)
-                    print("Recovery successful: Pipeline restored, processing resumed")
+                    print("Recovery successful: "
+                          "Pipeline restored, processing resumed")
                 else:
                     raise
         return result
@@ -93,17 +94,30 @@ class JSONAdapter(ProcessingPipeline):
             validated = self.stages[0].process(data) if self.stages else data
             if self.verbose:
                 print(f"Input: {json.dumps(data)}")
-            enriched = self.stages[1].process(validated) if len(self.stages) > 1 else validated
+            enriched = {
+                    self.stages[1].process(validated)
+                    if len(self.stages) > 1
+                    else validated
+                    }
             if self.verbose:
                 print("Transform: Enriched with metadata and validation")
-            _ = self.stages[2].process(enriched) if len(self.stages) > 2 else enriched
+            _ = (
+                self.stages[2].process(enriched)
+                if len(self.stages) > 2
+                else enriched
+                )
             if isinstance(data, dict):
                 sensor = data.get("sensor", "")
                 value = data.get("value", 0)
                 unit = data.get("unit", "")
                 if sensor == "temp":
-                    status = "Normal range" if float(value) < 30 else "High temperature"
-                    result = f"Processed temperature reading: {value}°{unit} ({status})"
+                    status = {
+                            "Normal range"
+                            if float(value) < 30
+                            else "High temperature"
+                            }
+                    result = (f"Processed temperature reading: "
+                              f"{value}°{unit} ({status})")
                 else:
                     result = f"Processed {sensor}: {value} {unit}"
             else:
@@ -124,13 +138,22 @@ class CSVAdapter(ProcessingPipeline):
             validated = self.stages[0].process(data) if self.stages else data
             if self.verbose:
                 print(f'Input: "{data}"')
-            enriched = self.stages[1].process(validated) if len(self.stages) > 1 else validated
+            enriched = {
+                    self.stages[1].process(validated)
+                    if len(self.stages) > 1
+                    else validated
+                    }
             if self.verbose:
                 print("Transform: Parsed and structured data")
-            _ = self.stages[2].process(enriched) if len(self.stages) > 2 else enriched
+            _ = (
+                self.stages[2].process(enriched)
+                if len(self.stages) > 2
+                else enriched
+                )
             if isinstance(data, str):
                 fields = [f.strip() for f in data.split(",")]
-                action_keywords = {"action", "buy", "sell", "login", "logout", "click"}
+                action_keywords = {"action", "buy", "sell",
+                                   "login", "logout", "click"}
                 count = sum(1 for f in fields if f in action_keywords)
                 if count == 0:
                     count = 1
@@ -153,10 +176,18 @@ class StreamAdapter(ProcessingPipeline):
             validated = self.stages[0].process(data) if self.stages else data
             if self.verbose:
                 print("Input: Real-time sensor stream")
-            enriched = self.stages[1].process(validated) if len(self.stages) > 1 else validated
+            enriched = {
+                    self.stages[1].process(validated)
+                    if len(self.stages) > 1
+                    else validated
+                    }
             if self.verbose:
                 print("Transform: Aggregated and filtered")
-            _ = self.stages[2].process(enriched) if len(self.stages) > 2 else enriched
+            _ = (
+                    self.stages[2].process(enriched)
+                    if len(self.stages) > 2
+                    else enriched
+                    )
             if isinstance(data, list):
                 readings = [
                     float(str(item).split(":")[1])
@@ -251,7 +282,8 @@ def main() -> None:
     print(f"Output: {csv_result}")
 
     print("\nProcessing Stream data through same pipeline...")
-    stream_data: List[Any] = ["temp:22.0", "temp:21.5", "temp:22.5", "temp:22.0", "temp:22.5"]
+    stream_data: List[Any] = ["temp:22.0", "temp:21.5",
+                              "temp:22.5", "temp:22.0", "temp:22.5"]
     stream_result = stream_pipeline.process(stream_data)
     print(f"Output: {stream_result}")
 
@@ -291,13 +323,15 @@ def main() -> None:
 
     chain_stats = chain_manager.get_total_stats()
     total_processed = int(chain_stats["total_processed"])
-    efficiency = round(total_processed / (records * len(chain_manager.pipelines)) * 100)
+    efficiency = (round(total_processed /
+                        (records * len(chain_manager.pipelines)) * 100))
 
     print(
         f"Chain result: {records} records processed through "
         f"{len(chain_manager.pipelines)}-stage pipeline"
     )
-    print(f"Performance: {efficiency}% efficiency, {elapsed}s total processing time")
+    print(f"Performance: {efficiency}% efficiency, "
+          f"{elapsed}s total processing time")
 
     print("\n=== Error Recovery Test ===")
     recovery_pipeline = JSONAdapter("RECOVERY_PIPELINE")
@@ -310,7 +344,8 @@ def main() -> None:
     recovery_pipeline.verbose = False
 
     print("Simulating pipeline failure...")
-    recovery_pipeline.run_with_recovery({"sensor": "temp", "value": 23.5, "unit": "C"})
+    recovery_pipeline.run_with_recovery({"sensor": "temp",
+                                         "value": 23.5, "unit": "C"})
     print("Nexus Integration complete. All systems operational.")
 
 

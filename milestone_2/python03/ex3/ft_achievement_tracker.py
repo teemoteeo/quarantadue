@@ -62,7 +62,9 @@ if __name__ == "__main__":
 
     common_achievements = achievement_pool.copy()
     for player_achievements in players.values():
-        common_achievements = common_achievements.intersection(player_achievements)
+        common_achievements = common_achievements.intersection(
+                player_achievements
+                )
     print(f"Common achievements: {common_achievements}")
 
     for name, player_achievements in players.items():
@@ -70,7 +72,9 @@ if __name__ == "__main__":
         for other_name, other_set in players.items():
             if other_name != name:
                 other_achievements = other_achievements.union(other_set)
-        print(f"Only {name} has: {player_achievements.difference(other_achievements)}")
+        print(f"Only {name} has: "
+              f"{player_achievements.difference(other_achievements)}")
 
     for name, player_achievements in players.items():
-        print(f"{name} is missing: {achievement_pool.difference(player_achievements)}")
+        print(f"{name} is missing: "
+              f"{achievement_pool.difference(player_achievements)}")

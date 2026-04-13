@@ -178,12 +178,13 @@ def main() -> None:
     print("\nInitializing Sensor Stream...")
     print(f"Stream ID: {sensor.stream_id}, Type: {sensor.stream_type}")
     sensor_batch: List[Any] = ["temp:22.5", "humidity:65", "pressure:1013"]
-    print(f"Processing sensor batch: [temp:22.5, humidity:65, pressure:1013]")
+    print("Processing sensor batch: [temp:22.5, humidity:65, pressure:1013]")
     print(f"Sensor analysis: {sensor.process_batch(sensor_batch)}")
 
     transaction = TransactionStream("TRANS_001")
     print("\nInitializing Transaction Stream...")
-    print(f"Stream ID: {transaction.stream_id}, Type: {transaction.stream_type}")
+    print(f"Stream ID: {transaction.stream_id}, "
+          f"Type: {transaction.stream_type}")
     trans_batch: List[Any] = ["buy:100", "sell:150", "buy:75"]
     print("Processing transaction batch: [buy:100, sell:150, buy:75]")
     print(f"Transaction analysis: {transaction.process_batch(trans_batch)}")
