@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+
+import alchemy.elements
+
+if __name__ == "__main__":
+    print("=== Alembic 2 ===")
+    print("Accessing alchemy/elements using 'import ...' structure")
+    print("Testing create_earth():", alchemy.elements.create_earth())
