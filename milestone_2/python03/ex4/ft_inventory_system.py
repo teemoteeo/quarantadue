@@ -39,6 +39,7 @@ def find_least_abundant(inventory: dict[str, int]) -> str:
 
 
 if __name__ == "__main__":
+    print("=== Inventory System Analysis ===")
     inventory: dict[str, int] = {}
 
     for argument in sys.argv[1:]:
@@ -51,7 +52,6 @@ if __name__ == "__main__":
             continue
         inventory[item] = quantity
 
-    print("=== Inventory System Analysis ===")
     print(f"Got inventory: {inventory}")
     print(f"Item list: {list(inventory.keys())}")
     total_quantity = sum(inventory.values())
