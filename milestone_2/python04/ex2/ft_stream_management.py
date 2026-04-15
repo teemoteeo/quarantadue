@@ -1,17 +1,69 @@
 #!/usr/bin/env python3
 
 import sys
+import typing
+
+
+def read_file(filename: str) -> str | None:
+    print("=== Cyber Archives Recovery & Preservation ===")
+    print(f"Accessing file '{filename}'")
+    file: typing.IO
+    try:
+        file = open(filename, "r")
+    except FileNotFoundError as error:
+        print(f"[STDERR] Error opening file '{filename}': {error}",
+              file=sys.stderr)
+        return None
+    except PermissionError as error:
+        print(f"[STDERR] Error opening file '{filename}': {error}",
+              file=sys.stderr)
+        return None
+    print("---")
+    print()
+    content = file.read()
+    print(content, end="")
+    print()
+    print("---")
+    file.close()
+    print(f"File '{filename}' closed.")
+    return content
 
 
 if __name__ == "__main__":
-    print("=== CYBER ARCHIVES - COMMUNICATION SYSTEM ===")
+    if len(sys.argv) != 2:
+        print("Usage: ft_stream_management.py <file>")
+        sys.exit(1)
 
-    user_id = input("Input Stream active. Enter archivist ID: ")
-    status_report = input("Input Stream active. Enter status report: ")
+    content = read_file(sys.argv[1])
+    if content is None:
+        sys.exit(1)
 
-    print(f"\n[STANDARD] Archive status from {user_id}: {status_report}")
-    print("[ALERT] System diagnostic: Communication channels verified",
-          file=sys.stderr)
-    print("[STANDARD] Data transmission complete\n")
+    lines = content.splitlines()
+    new_lines = [line + "#" for line in lines]
+    new_content = "\n".join(new_lines)
 
-    print("Three-channel communication successful.")
+    print()
+    print("Transform data:")
+    print("---")
+    print()
+    print(new_content)
+    print()
+    print("---")
+
+    sys.stdout.write("Enter new file name (or empty): ")
+    sys.stdout.flush()
+    output_name = sys.stdin.readline().rstrip("\n")
+
+    if not output_name:
+        print("Not saving data.")
+    else:
+        print(f"Saving data to '{output_name}'")
+        try:
+            out_file = open(output_name, "w")
+            out_file.write(new_content)
+            out_file.close()
+            print(f"Data saved in file '{output_name}'.")
+        except PermissionError as error:
+            print(f"[STDERR] Error opening file '{output_name}': {error}",
+                  file=sys.stderr)
+            print("Data not saved.")

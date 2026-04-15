@@ -2,6 +2,7 @@
 
 
 from .elements import create_air, create_earth
+import elements as root_elements
 
 
 def healing_potion() -> str:
@@ -10,8 +11,8 @@ def healing_potion() -> str:
     )
 
 
-def strenght_potion() -> str:
+def strength_potion() -> str:
     return (
-        f"Strenght potion brewed with '{create_earth()}'"
-        f" and '{create_air()}'"
+        f"Strength potion brewed with '{root_elements.create_fire()}'"
+        f" and '{root_elements.create_water()}'"
     )

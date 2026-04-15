@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
-# need ancient_fragment.txt to run program
+
+import sys
+import typing
+
+
+def read_file(filename: str) -> None:
+    print("=== Cyber Archives Recovery ===")
+    print(f"Accessing file '{filename}'")
+    file: typing.IO
+    try:
+        file = open(filename, "r")
+    except FileNotFoundError as error:
+        print(f"Error opening file '{filename}': {error}")
+        return
+    except PermissionError as error:
+        print(f"Error opening file '{filename}': {error}")
+        return
+    print("---")
+    print()
+    print(file.read(), end="")
+    print()
+    print("---")
+    file.close()
+    print(f"File '{filename}' closed.")
 
 
 if __name__ == "__main__":
-    print("=== CYBER ARCHIVES - DATA RECOVERY SYSTEM ===")
-
-    try:
-        with open("ancient_fragment.txt", "r") as f:
-            print("\nAccessing Storage Vault: ancient_fragment.txt")
-            print("Connection established...")
-            recovered_text = f.read()
-            print("\nRECOVERED DATA:")
-            print(f"\n{recovered_text}")
-            print("Data recovery complete. Storage unit disconnected.")
-    except FileNotFoundError:
-        print("\nERROR: Storage vault not found. Run data generator first.")
+    if len(sys.argv) != 2:
+        print("Usage: ft_ancient_text.py <file>")
+        sys.exit(1)
+    read_file(sys.argv[1])
