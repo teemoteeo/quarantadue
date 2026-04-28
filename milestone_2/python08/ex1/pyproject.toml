@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "loading"
+version = "0.1.0"
+description = "Matrix data analysis - Exercise 1"
+authors = ["Timoteo Costantini Scala <timoteocostantiniscala@gmail.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = "^2.1.0"
+numpy = "^1.25.0"
+matplotlib = "^3.7.2"
+requests = "^2.31.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

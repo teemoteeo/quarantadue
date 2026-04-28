@@ -3,7 +3,7 @@
 from .creatures import Creature
 from .aqua import Aquabub, Torragon
 from .flame import Flameling, Pyrodon
-from abc import ABC, abstractmethod 
+from abc import ABC, abstractmethod
 
 
 class CreatureFactory(ABC):

@@ -1,0 +1,15 @@
+# Never commit real secrets. .env holds credentials (API keys, DB URLs)
+# that must stay local. Only the template (.env.example) is versioned.
+.env
+.env.local
+.env.*.local
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+matrix_env/

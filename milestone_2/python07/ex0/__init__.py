@@ -1,3 +1,3 @@
 #!/usr/bin/env python3
 
-from .factory import CreatureFactory, FlameFactory, AquaFactory
+from .factory import CreatureFactory, FlameFactory, AquaFactory  # noqa: F401
