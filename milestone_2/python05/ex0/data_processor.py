@@ -100,43 +100,43 @@ if __name__ == "__main__":
     print()
     print("Testing Numeric Processor...")
     numeric = NumericProcessor()
-    print(f" Trying to validate input '42': {numeric.validate(42)}")
-    print(f" Trying to validate input 'Hello': {numeric.validate('Hello')}")
-    print(" Test invalid ingestion of string 'foo' without prior validation:")
+    print(f"Trying to validate input '42': {numeric.validate(42)}")
+    print(f"Trying to validate input 'Hello': {numeric.validate('Hello')}")
+    print("Test invalid ingestion of string 'foo' without prior validation:")
     try:
         numeric.ingest("foo")  # type: ignore[arg-type]
     except TypeError as e:
-        print(f" Got exception: {e}")
+        print(f"Got exception: {e}")
     data_n = [1, 2, 3, 4, 5]
     numeric.ingest(data_n)
-    print(f" Processing data: {data_n}")
-    print(" Extracting 3 values...")
+    print(f"Processing data: {data_n}")
+    print("Extracting 3 values...")
     for _ in range(3):
         rank, value = numeric.output()
-        print(f" Numeric value {rank}: {value}")
+        print(f"Numeric value {rank}: {value}")
 
     print()
     print("Testing Text Processor...")
     text = TextProcessor()
-    print(f" Trying to validate input '42': {text.validate(42)}")
+    print(f"Trying to validate input '42': {text.validate(42)}")
     data_t = ["Hello", "Nexus", "World"]
     text.ingest(data_t)
-    print(f" Processing data: {data_t}")
-    print(" Extracting 1 value...")
+    print(f"Processing data: {data_t}")
+    print("Extracting 1 value...")
     rank, value = text.output()
-    print(f" Text value {rank}: {value}")
+    print(f"Text value {rank}: {value}")
 
     print()
     print("Testing Log Processor...")
     log = LogProcessor()
-    print(f" Trying to validate input 'Hello': {log.validate('Hello')}")
+    print(f"Trying to validate input 'Hello': {log.validate('Hello')}")
     data_l = [
         {"log_level": "NOTICE", "log_message": "Connection to server"},
         {"log_level": "ERROR", "log_message": "Unauthorized access!!"},
     ]
     log.ingest(data_l)
-    print(f" Processing data: {data_l}")
-    print(" Extracting 2 values...")
+    print(f"Processing data: {data_l}")
+    print("Extracting 2 values...")
     for _ in range(2):
         rank, value = log.output()
-        print(f" Log entry {rank}: {value}")
+        print(f"Log entry {rank}: {value}")

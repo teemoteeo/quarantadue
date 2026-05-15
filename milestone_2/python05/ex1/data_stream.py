@@ -37,7 +37,12 @@ class DataStream:
             print("No processor found, no data")
             return
         for proc in self._processors:
-            name = type(proc).__name__
+            raw = type(proc).__name__
+            name = ''.join(
+                (' ' + c) if (c.isupper() and i > 0 and raw[i - 1].islower())
+                else c
+                for i, c in enumerate(raw)
+            )
             remaining = len(proc._storage)
             total = proc._rank + remaining
             print(f"{name}: total {total} items processed, "
@@ -68,7 +73,6 @@ if __name__ == "__main__":
     ]
     print(f"Send first batch of data on stream: {batch1}")
     ds.process_stream(batch1)
-    print("== DataStream statistics ==")
     ds.print_processors_stats()
 
     print()
@@ -80,7 +84,10 @@ if __name__ == "__main__":
     ds.print_processors_stats()
 
     print()
-    print("Consume some elements from the data processors: Numeric 3, Text 2, Log 1")
+    print(
+        "Consume some elements from the data processors: "
+        "Numeric 3, Text 2, Log 1"
+    )
     numeric_proc = ds._processors[0]
     text_proc = ds._processors[1]
     log_proc = ds._processors[2]
