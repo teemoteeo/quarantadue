@@ -1,0 +1,8 @@
+# Easy map: Basic capacity with 4 drones
+# Target: ≤ 6 turns
+nb_drones: 4
+start_hub: hub 0 0 [color=green]
+end_hub: goal 2 0 [color=yellow]
+hub: wide_hall 1 0 [zone=normal max_drones=4 color=blue]
+connection: hub-wide_hall
+connection: wide_hall-goal

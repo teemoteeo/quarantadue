@@ -1,0 +1,16 @@
+# Hard map: Capacity hell with 12 drones
+# Target: ≤ 35 turns
+nb_drones: 12
+start_hub: hub 0 0 [color=green]
+end_hub: goal 3 1 [color=yellow]
+hub: choke_a 1 0 [zone=normal max_drones=1 color=red]
+hub: choke_b 1 1 [zone=normal max_drones=1 color=red]
+hub: choke_c 1 2 [zone=normal max_drones=1 color=red]
+hub: mid 2 1 [zone=normal max_drones=1 color=blue]
+connection: hub-choke_a
+connection: hub-choke_b
+connection: hub-choke_c
+connection: choke_a-mid
+connection: choke_b-mid
+connection: choke_c-mid
+connection: mid-goal [max_link_capacity=1]

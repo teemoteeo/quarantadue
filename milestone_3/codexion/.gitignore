@@ -1,0 +1,17 @@
+# Object files
+obj/
+*.o
+*.d
+
+# Binary
+codexion
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

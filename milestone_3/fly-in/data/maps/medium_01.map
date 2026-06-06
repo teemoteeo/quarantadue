@@ -1,0 +1,14 @@
+# Medium map: Dead end trap with 5 drones
+# Target: ≤ 12 turns
+nb_drones: 5
+start_hub: hub 0 0 [color=green]
+end_hub: goal 4 0 [color=yellow]
+hub: junction 1 0 [zone=normal max_drones=2 color=blue]
+hub: dead_end 2 2 [zone=normal color=red]
+hub: safe_path 2 0 [zone=normal max_drones=2 color=blue]
+hub: bottleneck 3 0 [zone=normal max_drones=1 color=red]
+connection: hub-junction
+connection: junction-dead_end
+connection: junction-safe_path
+connection: safe_path-bottleneck
+connection: bottleneck-goal

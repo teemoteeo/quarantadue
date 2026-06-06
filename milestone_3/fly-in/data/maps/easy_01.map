@@ -1,0 +1,10 @@
+# Easy map: Linear path with 2 drones
+# Target: ≤ 6 turns
+nb_drones: 2
+start_hub: hub 0 0 [color=green]
+end_hub: goal 3 0 [color=yellow]
+hub: mid1 1 0 [zone=normal color=blue]
+hub: mid2 2 0 [zone=normal color=blue]
+connection: hub-mid1
+connection: mid1-mid2
+connection: mid2-goal
