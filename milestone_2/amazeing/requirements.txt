@@ -1,0 +1,5 @@
+pyfiglet
+flake8
+mypy
+pytest
+build
