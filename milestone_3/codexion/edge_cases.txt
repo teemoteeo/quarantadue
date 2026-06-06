@@ -1,0 +1,87 @@
+=== Codexion Edge Cases ===
+
+Generated: 2026-06-04
+
+--- ARGUMENT PARSING EDGE CASES ---
+
+✅ Negative number_of_coders — Rejected with usage message
+✅ Zero coders — Rejected (positive integer required)
+✅ Negative time values — Rejected
+✅ Non-integer arguments (string) — Rejected
+✅ Wrong argument count (7 instead of 8) — Rejected
+✅ Invalid scheduler ("bogus") — Rejected
+✅ Scheduler case sensitivity — "FIFO"/"EdF" rejected, only "fifo"/"edf" accepted
+✅ Large numbers — Accepted (subject to int overflow)
+
+--- CONCURRENCY / SYNCHRONIZATION EDGE CASES ---
+
+✅ 2 coders — Both compile in alternating pairs
+✅ 3 coders (odd number) — Sequential compilation, no deadlock
+✅ 4 coders (even number) — Paired compilation (1&3 or 2&4)
+✅ Deadlock prevention — Release-and-retry on circular wait
+✅ Ordered dongle acquisition — Lower index first prevents AB-BA
+✅ Starvation prevention — EDF guarantees bounded wait (feasible params)
+✅ FIFO ordering — Coders served in arrival order
+✅ EDF ordering — Earliest deadline served first
+✅ Dongle cooldown — Enforced after release, dongle unavailable for N ms
+✅ Spurious wakeup protection — While-loop re-checks condition after cond_wait
+✅ Log serialization — No interleaved messages (protected by log_mutex)
+✅ Race condition: heap access — Protected by sched_mutex
+✅ Race condition: dongle state — Protected by per-dongle mutex
+✅ Race condition: stop_flag — Protected by stop_mutex
+
+--- BURNOUT DETECTION EDGE CASES ---
+
+✅ Tight deadline (compile > burnout) — Correct burnout at deadline ±1ms
+✅ Burnout during compilation — Stop flag set, coder exits after sleep
+✅ Burnout during waiting — Monitor detects, stops simulation
+✅ Burnout log within 10ms — Verified (300ms expected, 300ms actual)
+✅ All coders complete before burnout — Simulation stops normally
+✅ Monitor thread exits cleanly — Join succeeds after stop_flag set
+✅ Coder checks stop_flag after each phase — Prevents extra logging
+
+--- MEMORY / RESOURCE EDGE CASES ---
+
+✅ All dongle mutexes initialized and destroyed
+✅ All condition variables initialized and destroyed
+✅ stop_mutex initialized and destroyed
+✅ log_mutex initialized and destroyed
+✅ sched_mutex initialized and destroyed
+✅ Heap (wait_queue) allocated and freed
+✅ No global variables
+✅ All threads joined before exit
+
+--- OUTPUT FORMAT EDGE CASES ---
+
+✅ Timestamp format: <ms> <coder_id> <message>
+✅ "has taken a dongle" appears exactly twice per compile cycle
+✅ "is compiling" follows two dongle acquisitions
+✅ "is debugging" follows compilation
+✅ "is refactoring" follows debugging
+✅ "burned out" appears once at burnout
+✅ No interleaved lines
+✅ All output serialized through log_mutex
+
+--- SUBJECT COMPLIANCE ---
+
+✅ Written in C
+✅ Compiled with -Wall -Wextra -Werror -pthread
+✅ Makefile with NAME, all, clean, fclean, re
+✅ No relinking (object files tracked correctly)
+✅ External functions: only pthread_*, gettimeofday, usleep, write, malloc,
+   free, printf, fprintf, strcmp, strlen, atoi, memset
+✅ No libft dependency
+✅ Each coder is a pthread
+✅ One dongle between each coder pair
+✅ Dongle state protected by mutex
+✅ Condition variables for waiting queues
+✅ Dongle cooldown enforced
+✅ FIFO and EDF scheduling implemented
+✅ Custom priority queue (heap) — no stdlib usage
+✅ Monitor thread for burnout detection
+✅ Log serialization via mutex
+✅ Simulation stops on burnout or completion
+✅ README.md with all required sections:
+   - Blocking cases handled
+   - Thread synchronization mechanisms
+   - Parser validates all arguments

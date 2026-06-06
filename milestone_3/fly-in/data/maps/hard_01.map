@@ -1,0 +1,34 @@
+# Hard map: Maze nightmare with 8 drones
+# Target: ≤ 30 turns
+nb_drones: 8
+start_hub: hub 0 0 [color=green]
+end_hub: goal 6 0 [color=yellow]
+hub: m1 1 0 [zone=normal max_drones=2 color=blue]
+hub: m2 1 1 [zone=normal color=blue]
+hub: m3 2 1 [zone=restricted color=red]
+hub: m4 2 2 [zone=normal color=blue]
+hub: m5 3 2 [zone=priority color=green max_drones=1]
+hub: m6 3 1 [zone=normal max_drones=2 color=blue]
+hub: m7 4 1 [zone=normal color=blue]
+hub: m8 4 0 [zone=restricted color=red]
+hub: m9 5 0 [zone=priority color=green max_drones=2]
+hub: m10 2 0 [zone=normal max_drones=1 color=blue]
+hub: m11 3 0 [zone=normal max_drones=1 color=blue]
+hub: m12 4 -1 [zone=normal color=blue]
+hub: m13 5 -1 [zone=normal max_drones=2 color=blue]
+connection: hub-m1
+connection: hub-m2
+connection: m1-m10
+connection: m2-m3
+connection: m3-m4
+connection: m4-m5
+connection: m5-m6
+connection: m6-m7
+connection: m7-m8
+connection: m8-m9
+connection: m9-goal
+connection: m10-m11
+connection: m11-m8
+connection: m1-m12
+connection: m12-m13
+connection: m13-goal

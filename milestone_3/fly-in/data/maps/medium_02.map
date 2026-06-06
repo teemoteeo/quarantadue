@@ -1,0 +1,20 @@
+# Medium map: Circular loop with 6 drones
+# Target: ≤ 15 turns
+nb_drones: 6
+start_hub: hub 0 0 [color=green]
+end_hub: goal 2 0 [color=yellow]
+hub: ring_a 1 1 [zone=normal max_drones=2 color=blue]
+hub: ring_b 0 1 [zone=normal max_drones=2 color=blue]
+hub: ring_c -1 0 [zone=normal max_drones=2 color=blue]
+hub: ring_d -1 -1 [zone=normal max_drones=2 color=blue]
+hub: ring_e 0 -1 [zone=normal max_drones=2 color=blue]
+hub: ring_f 1 -1 [zone=normal max_drones=2 color=blue]
+connection: hub-ring_a
+connection: hub-ring_f
+connection: ring_a-ring_b
+connection: ring_b-ring_c
+connection: ring_c-ring_d
+connection: ring_d-ring_e
+connection: ring_e-ring_f
+connection: ring_f-goal
+connection: ring_a-goal

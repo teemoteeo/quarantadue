@@ -1,0 +1,18 @@
+# Easy map: Simple fork with 4 drones
+# Target: ≤ 8 turns
+nb_drones: 4
+start_hub: hub 0 0 [color=green]
+end_hub: goal 4 0 [color=yellow]
+hub: fork_a 1 0 [zone=normal color=blue]
+hub: fork_b 1 2 [zone=normal color=blue]
+hub: merge 3 0 [zone=normal color=blue]
+hub: upper 2 2 [zone=normal color=blue max_drones=2]
+hub: lower 2 0 [zone=normal color=blue max_drones=2]
+connection: hub-fork_a
+connection: hub-fork_b
+connection: fork_a-lower
+connection: fork_a-upper
+connection: fork_b-upper
+connection: upper-merge
+connection: lower-merge
+connection: merge-goal

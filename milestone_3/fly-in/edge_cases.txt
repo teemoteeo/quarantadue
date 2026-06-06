@@ -1,0 +1,80 @@
+=== Fly-in Edge Cases ===
+
+Generated: 2026-06-04
+
+--- PARSER EDGE CASES ---
+
+✅ Missing nb_drones — ParserError "Missing nb_drones declaration"
+✅ Missing start_hub — ParserError "Missing start_hub declaration"
+✅ Missing end_hub — ParserError "Missing end_hub declaration"
+✅ Duplicate zone name — ParserError "Duplicate zone name"
+✅ Duplicate connection (a-b and b-a) — ParserError "Duplicate connection"
+✅ Duplicate connection (same direction twice) — ParserError
+✅ Invalid zone type (zone=magical) — ParserError "Invalid zone type"
+✅ File not found — ParserError "File not found"
+✅ Negative coordinates — Accepts negative integers (valid per spec)
+✅ Comments (# prefix) — Correctly ignored
+✅ Inline comments — Correctly stripped
+✅ max_drones=0 — Rejected by pydantic validation (ge=1)
+✅ max_link_capacity=0 — Rejected by pydantic validation (ge=1)
+✅ Connection referencing undefined zone — ParserError
+✅ Unrecognised line syntax — ParserError
+✅ Whitespace-only lines — Correctly skipped
+✅ Metadata tags in any order — Correctly parsed
+
+--- GRAPH / PATHFINDING EDGE CASES ---
+
+✅ No path from start to end (disconnected) — compute_shortest_path returns None
+✅ Blocked zone in path — Correctly excluded from neighbours
+✅ Restricted zone cost — Returns 2.0 (vs 1.0 for normal)
+✅ Priority zone preference — Lower effective cost (0.99 vs 1.0), chosen in ties
+✅ Self-loop not possible — Zones must have unique names
+✅ Single-hop path — Returns 1-turn path
+✅ Multi-hop path — Returns correct N-turn path
+✅ All paths blocked — Returns None
+
+--- SIMULATION ENGINE EDGE CASES ---
+
+✅ Single drone — Moves straight to goal, minimal turns
+✅ Multiple drones, same path — Sequential movement when capacity=1
+✅ Multiple drones, forked paths — Distributed across both paths
+✅ Zone max_drones capacity — Drones wait when zone full
+✅ Connection max_link_capacity — Drones wait when link saturated
+✅ Drone departs frees capacity same turn — Verified with effective occupancy
+✅ Restricted zone (2-turn) transit — Drone shows connection on turn 1, zone on turn 2
+✅ Restricted zone arrival mandatory — Drone cannot wait mid-flight
+✅ End zone unlimited capacity — All drones can arrive simultaneously
+✅ Start zone unlimited capacity — All drones start together
+✅ Deadlock detection — Raises RuntimeError after 10 no-movement turns
+✅ Drones move in ID order — Deterministic output
+✅ Drones that don't move omitted from turn line — Correct output format
+✅ All delivered ends simulation — Verified
+✅ 10000-turn cap — Raises RuntimeError on excessive turns
+
+--- PERFORMANCE VERIFICATION ---
+
+✅ easy_01 (linear, 2 drones): 4 turns (target ≤6)
+✅ easy_02 (fork, 4 drones):   7 turns (target ≤8)
+✅ easy_03 (capacity, 4):      5 turns (target ≤6)
+✅ medium_01 (dead end, 5):    8 turns (target ≤12)
+✅ medium_02 (circular, 6):    4 turns (target ≤15)
+✅ medium_03 (priority, 5):    7 turns (target ≤12)
+✅ hard_01 (maze, 8):          17 turns (target ≤30)
+✅ hard_02 (capacity, 12):     14 turns (target ≤35)
+
+--- SUBJECT COMPLIANCE ---
+
+✅ Python 3.10+
+✅ flake8 coding standard
+✅ Type hints + mypy (strict config)
+✅ Docstrings (PEP 257)
+✅ Makefile with install/run/debug/clean/lint/lint-strict
+✅ pydantic for validation
+✅ No forbidden libraries (networkx, graphlib, etc.)
+✅ Fully OOP (classes for graph, simulation, visualizer, parser)
+✅ Exception handling (try-except, custom errors)
+✅ Context managers for file resources
+✅ .gitignore present
+✅ No graph libraries used
+✅ Visual representation (colored terminal output)
+✅ README.md with all required sections
