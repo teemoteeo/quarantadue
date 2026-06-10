@@ -1,48 +1,57 @@
-"""primitive di decoding vincolato per tirar fuori chiamate di funzione.
+"""Constrained-decoding primitives that extract structured function calls.
 
-il decoder lavora a livello di token. ad ogni passo di generazione fa così:
+The decoder works at token level. At each generation step it:
 
-1. chiede al modello i logit del prossimo token.
-2. calcola l'insieme di id di token il cui testo letterale tiene l'output
-   accumulato su una strada ancora legale secondo la grammatica corrente
-   (scelta del nome di funzione / numero JSON / stringa JSON).
-3. maschera ogni altro logit a ``-inf`` (numericamente ``-1e30``).
-4. piglia il token legale col punteggio più alto, lo attacca, e cicla.
+1. Asks the model for next-token logits.
+2. Computes the set of token ids whose literal text keeps the accumulated
+   output on a path that is still legal under the active grammar
+   (function-name choice / JSON number / JSON string / boolean literal).
+   For the string and number grammars this set is a precomputed numpy
+   boolean mask per DFA state: legality of ``accumulated + token`` only
+   depends on the DFA state reached after ``accumulated``, so each state's
+   mask is built once over the whole vocabulary at startup.
+3. Masks every other logit to ``-inf`` (numerically ``-1e30``).
+4. Takes the highest-scoring legal token, appends it, and loops.
 
-la grammatica è spezzata in tre DFA piccoletti, uno per stato che ci interessa;
-si generano solo i *valori* di cui l'LLM è davvero responsabile, mentre la
-roba strutturale del JSON viene buttata dentro pari pari.
+The grammar is split into small DFAs, one per state of interest; only the
+*values* the LLM is responsible for are generated, while the structural
+JSON scaffolding is injected verbatim.
+
+Termination is guaranteed by construction: near the step budget the string
+grammar only admits tokens that close the value, so every decode either
+completes or raises -- there is no heuristic recovery path.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+import weakref
 from typing import Any, Iterable
+
+import numpy as np
+import numpy.typing as npt
+from pydantic import BaseModel, ConfigDict
 
 from .model import TokenizedLLM
 from .schemas import FunctionDefinition, ParameterSpec
 
 NEG_INF: float = -1e30
 
-# Anything below 0x20 (other than tab) is unsafe inside a JSON string and is
-# also a strong indicator that a token represents control/special bytes.
-_FORBIDDEN_CHAR_ORDS = frozenset(range(0, 0x20)) - {0x09}
+BoolMask = npt.NDArray[np.bool_]
 
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _DIGITS = frozenset("0123456789")
 _SIMPLE_ESCAPES = frozenset('"\\/bfnrt')
 
-
-def _has_forbidden_chars(text: str) -> bool:
-    """ritorna True se il testo ha dentro un carattere di controllo che non è tab."""
-    return any(ord(c) in _FORBIDDEN_CHAR_ORDS for c in text)
+# Once a string value has been generated for this many steps short of the
+# budget, the decoder only allows tokens that close the string.
+_STRING_CLOSE_WINDOW: int = 8
 
 
 def _argmax_masked(
     logits: list[float], valid_ids: Iterable[int]
 ) -> int | None:
-    """ritorna l'id in ``valid_ids`` col logit più alto, oppure None."""
+    """Return the id in ``valid_ids`` with the highest logit, or None."""
     best_id: int | None = None
     best_logit = -math.inf
     for tid in valid_ids:
@@ -53,17 +62,32 @@ def _argmax_masked(
     return best_id
 
 
+def _argmax_masked_np(logits: list[float], mask: BoolMask) -> int | None:
+    """Return the highest-logit token id allowed by ``mask``, or None.
+
+    The logits vector may be longer than the base vocabulary (padded
+    embedding rows); padded ids are never legal, so both arrays are
+    clipped to the shorter length.
+    """
+    arr = np.asarray(logits, dtype=np.float64)
+    k = min(arr.shape[0], mask.shape[0])
+    valid = mask[:k]
+    if not valid.any():
+        return None
+    return int(np.where(valid, arr[:k], NEG_INF).argmax())
+
+
 # ---------------------------------------------------------------------------
 # Prompt assembly
 # ---------------------------------------------------------------------------
 
 
 def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
-    """costruisce il prompt testuale che inquadra il compito di chiamata funzione."""
+    """Build the textual prompt that frames the function-calling task."""
     lines: list[str] = [
         "You are a function-calling assistant. Pick the single best function "
-        "from the catalog below and fill in its arguments based on the user's "
-        "request. Only reply with one JSON object of the form "
+        "from the catalog below and fill in its arguments based on the "
+        "user's request. Only reply with one JSON object of the form "
         '{"name": "<fn>", "parameters": {...}}.',
         "",
         "Catalog:",
@@ -74,7 +98,7 @@ def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
         )
         lines.append(f"- {fn.name}({params_str}): {fn.description}")
     lines.append("")
-    lines.append(f'User request: {prompt}')
+    lines.append(f"User request: {prompt}")
     lines.append('Function call: {"name": "')
     return "\n".join(lines)
 
@@ -91,29 +115,51 @@ def choose_function_name(
     *,
     max_steps: int = 32,
 ) -> tuple[str, list[int]]:
-    """decodifica uno tra ``function_names`` mascherando via tutto il resto."""
+    """Decode exactly one of ``function_names`` by masking everything else.
+
+    When the accumulated text is both a complete catalog name and a strict
+    prefix of a longer one (e.g. ``fn_add`` vs ``fn_add_numbers``), the
+    model's own logits arbitrate: the closing-quote token competes against
+    the best continuation token.
+    """
     accumulated = ""
     ids = list(input_ids)
-    id_to_text = llm.id_to_text
+    id_text = llm.id_to_text
+    quote_ids = [tid for tid, text in llm.clean_vocab if text == '"']
     for _ in range(max_steps):
-        if accumulated in function_names:
+        is_complete = accumulated in function_names
+        has_longer = any(
+            name != accumulated and name.startswith(accumulated)
+            for name in function_names
+        )
+        if is_complete and not has_longer:
             return accumulated, ids
         valid: list[int] = []
-        for tid, text in id_to_text.items():
-            if not text or _has_forbidden_chars(text):
-                continue
+        for tid, text in llm.clean_vocab:
             candidate = accumulated + text
             for target in function_names:
                 if target.startswith(candidate):
                     valid.append(tid)
                     break
+        if is_complete:
+            logits = llm.get_logits(ids)
+            best_cont = _argmax_masked(logits, valid) if valid else None
+            best_stop = _argmax_masked(logits, quote_ids)
+            if best_cont is None or (
+                best_stop is not None
+                and logits[best_stop] >= logits[best_cont]
+            ):
+                return accumulated, ids
+            accumulated += id_text[best_cont]
+            ids.append(best_cont)
+            continue
         if not valid:
             break
         logits = llm.get_logits(ids)
         best = _argmax_masked(logits, valid)
         if best is None:
             break
-        accumulated += id_to_text[best]
+        accumulated += id_text[best]
         ids.append(best)
     if accumulated in function_names:
         return accumulated, ids
@@ -128,60 +174,60 @@ def choose_function_name(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class _NumberWalk:
-    """risultato del passaggio del testo nel DFA numero+terminatore."""
-
-    status: str  # "complete", "prefix", or "invalid"
+_NUMBER_STATES: tuple[str, ...] = ("start", "sign", "int", "dot", "frac")
 
 
-def _walk_number(text: str, terminator: str) -> _NumberWalk:
-    """fa camminare ``text`` dentro la grammatica ``number<terminator>``.
+def _step_number(
+    state: str,
+    text: str,
+    terminator: str,
+    *,
+    allow_fraction: bool = True,
+) -> str | None:
+    """Advance the ``number<terminator>`` DFA from ``state`` over ``text``.
 
-    la camminata dice se ``text`` è un prefisso valido, un match completo
-    (numero seguito dal terminatore), oppure roba non valida.
+    Returns the end state (``"done"`` once the terminator is consumed)
+    or None when the text is illegal from that state. With
+    ``allow_fraction=False`` the decimal point is rejected, so integer
+    parameters can never silently truncate a fractional decode.
     """
-    state = "start"
-    seen_terminator = False
     for ch in text:
-        if seen_terminator:
-            return _NumberWalk("invalid")
+        if state == "done":
+            return None
         if state == "start":
             if ch == "-":
                 state = "sign"
             elif ch in _DIGITS:
                 state = "int"
             else:
-                return _NumberWalk("invalid")
+                return None
         elif state == "sign":
             if ch in _DIGITS:
                 state = "int"
             else:
-                return _NumberWalk("invalid")
+                return None
         elif state == "int":
             if ch in _DIGITS:
                 pass
-            elif ch == ".":
+            elif ch == "." and allow_fraction:
                 state = "dot"
             elif ch == terminator:
-                seen_terminator = True
+                state = "done"
             else:
-                return _NumberWalk("invalid")
+                return None
         elif state == "dot":
             if ch in _DIGITS:
                 state = "frac"
             else:
-                return _NumberWalk("invalid")
+                return None
         elif state == "frac":
             if ch in _DIGITS:
                 pass
             elif ch == terminator:
-                seen_terminator = True
+                state = "done"
             else:
-                return _NumberWalk("invalid")
-    if seen_terminator:
-        return _NumberWalk("complete")
-    return _NumberWalk("prefix")
+                return None
+    return state
 
 
 def generate_number(
@@ -189,35 +235,50 @@ def generate_number(
     input_ids: list[int],
     terminator: str,
     *,
+    allow_fraction: bool = True,
     max_steps: int = 24,
 ) -> tuple[str, list[int]]:
-    """decodifica un numero JSON fino a (escluso) ``terminator``."""
+    """Decode a JSON number up to (and consuming) ``terminator``.
+
+    Returns the number text without the terminator. Note: the terminator
+    token has been appended to the returned ids, so callers must not add
+    a separator of their own afterwards.
+    """
     accumulated = ""
     ids = list(input_ids)
-    id_to_text = llm.id_to_text
+    id_text = llm.id_to_text
+    masks = _grammar_masks(llm).number(terminator, allow_fraction)
+    state = "start"
     for _ in range(max_steps):
-        if _walk_number(accumulated, terminator).status == "complete":
+        if state == "done":
             return accumulated[:-1], ids
-        valid: list[int] = []
-        for tid, text in id_to_text.items():
-            if not text or _has_forbidden_chars(text):
-                continue
-            result = _walk_number(accumulated + text, terminator)
-            if result.status != "invalid":
-                valid.append(tid)
-        if not valid:
+        mask = masks[state]
+        if not mask.any():
             break
         logits = llm.get_logits(ids)
-        best = _argmax_masked(logits, valid)
+        best = _argmax_masked_np(logits, mask)
         if best is None:
             break
-        accumulated += id_to_text[best]
+        text = id_text[best]
+        nxt = _step_number(
+            state, text, terminator, allow_fraction=allow_fraction
+        )
+        if nxt is None:  # unreachable: token came from the valid mask
+            break
+        state = nxt
+        accumulated += text
         ids.append(best)
-    final = _walk_number(accumulated, terminator)
-    if final.status == "complete":
+    if state == "done":
         return accumulated[:-1], ids
-    # Fallback: if the body alone is a valid number, accept it.
-    if _walk_number(accumulated + terminator, terminator).status == "complete":
+    # The body alone may already be a valid number (budget ran out before
+    # the terminator token was emitted).
+    body_check = _step_number(
+        "start",
+        accumulated + terminator,
+        terminator,
+        allow_fraction=allow_fraction,
+    )
+    if body_check == "done":
         return accumulated, ids
     raise RuntimeError(
         f"Constrained decoding failed to produce a number "
@@ -230,45 +291,152 @@ def generate_number(
 # ---------------------------------------------------------------------------
 
 
-def _walk_string(text: str) -> str:
-    """classifica ``text`` come prefisso del corpo di una stringa JSON oppure valore completo.
+_STRING_STATES: tuple[str, ...] = (
+    "body", "escape", "uhex0", "uhex1", "uhex2", "uhex3"
+)
+_UHEX_NEXT = {
+    "uhex0": "uhex1",
+    "uhex1": "uhex2",
+    "uhex2": "uhex3",
+    "uhex3": "body",
+}
 
-    si dà per scontato che la virgoletta d'apertura stia già nell'input;
-    ``text`` è la roba che viene dopo e si aspetta finisca con la virgoletta di chiusura.
+
+def _step_string(state: str, text: str) -> str | None:
+    """Advance the JSON-string DFA from ``state`` over ``text``.
+
+    Returns the end state (``"done"`` once the unescaped closing quote
+    is consumed) or None when the text is illegal from that state.
     """
-    state = "body"
     for ch in text:
         if state == "done":
-            return "invalid"
+            return None
         if state == "body":
             if ch == '"':
                 state = "done"
             elif ch == "\\":
                 state = "escape"
-            elif ord(ch) >= 0x20:
-                state = "body"
-            else:
-                return "invalid"
+            elif ord(ch) < 0x20:
+                return None
         elif state == "escape":
             if ch in _SIMPLE_ESCAPES:
                 state = "body"
             elif ch == "u":
                 state = "uhex0"
             else:
-                return "invalid"
-        elif state in ("uhex0", "uhex1", "uhex2", "uhex3"):
-            if ch in _HEX_DIGITS:
-                state = {
-                    "uhex0": "uhex1",
-                    "uhex1": "uhex2",
-                    "uhex2": "uhex3",
-                    "uhex3": "body",
-                }[state]
-            else:
-                return "invalid"
-    if state == "done":
-        return "complete"
-    return "prefix"
+                return None
+        else:  # uhex0..uhex3
+            if ch not in _HEX_DIGITS:
+                return None
+            state = _UHEX_NEXT[state]
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Precomputed per-state vocabulary masks
+# ---------------------------------------------------------------------------
+
+
+class GrammarMasks:
+    """Numpy boolean masks over the vocabulary, one per DFA state.
+
+    Because the grammars are DFAs, the legality of ``accumulated +
+    token_text`` depends only on the state reached after ``accumulated``
+    (``step(step(s0, a), b) == step(s0, a + b)``). Each state therefore
+    classifies every vocabulary token once, up front; a decode step is
+    then a dict lookup plus a vectorized argmax instead of a Python scan
+    over the whole vocabulary.
+    """
+
+    def __init__(self, llm: TokenizedLLM) -> None:
+        self._llm = llm
+        size = llm.vocab_size
+        self.string_valid: dict[str, BoolMask] = {
+            state: np.zeros(size, dtype=bool) for state in _STRING_STATES
+        }
+        self.string_closing: dict[str, BoolMask] = {
+            state: np.zeros(size, dtype=bool) for state in _STRING_STATES
+        }
+        self.bare_quote: BoolMask = np.zeros(size, dtype=bool)
+        for tid, text in llm.clean_vocab:
+            if text == '"':
+                self.bare_quote[tid] = True
+            for state in _STRING_STATES:
+                end = _step_string(state, text)
+                if end is None:
+                    continue
+                self.string_valid[state][tid] = True
+                if end == "done":
+                    self.string_closing[state][tid] = True
+        # Number masks are built lazily: only the terminators actually
+        # used ("," and "}") ever get a table.
+        self._number: dict[tuple[str, bool], dict[str, BoolMask]] = {}
+
+    def number(
+        self, terminator: str, allow_fraction: bool
+    ) -> dict[str, BoolMask]:
+        """Return (building on first use) the masks for a number grammar."""
+        key = (terminator, allow_fraction)
+        masks = self._number.get(key)
+        if masks is None:
+            size = self._llm.vocab_size
+            masks = {
+                state: np.zeros(size, dtype=bool)
+                for state in _NUMBER_STATES
+            }
+            for tid, text in self._llm.clean_vocab:
+                for state in _NUMBER_STATES:
+                    end = _step_number(
+                        state,
+                        text,
+                        terminator,
+                        allow_fraction=allow_fraction,
+                    )
+                    if end is not None:
+                        masks[state][tid] = True
+            self._number[key] = masks
+        return masks
+
+
+_MASK_CACHE: weakref.WeakKeyDictionary[TokenizedLLM, GrammarMasks] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _grammar_masks(llm: TokenizedLLM) -> GrammarMasks:
+    """Return the mask tables for ``llm``, building them on first use."""
+    masks = _MASK_CACHE.get(llm)
+    if masks is None:
+        masks = GrammarMasks(llm)
+        _MASK_CACHE[llm] = masks
+    return masks
+
+
+def _trailing_repetition(text: str) -> tuple[int, int] | None:
+    """Detect a repeated trailing segment (degenerate generation loop).
+
+    Returns ``(period, repetitions)`` when the text ends with the same
+    segment repeated enough times to indicate a loop, otherwise None.
+    Thresholds: 5 repetitions for 1-2 char segments (so legitimate short
+    runs like ``"aaa"`` survive), 3 for segments up to 8 chars, 2 for
+    segments up to 24 chars (long alternation cycles such as
+    ``a|e|i|o|u|A|E|I|O|U|``).
+    """
+    n = len(text)
+    for period in range(1, 25):
+        if period <= 2:
+            reps = 5
+        elif period <= 8:
+            reps = 3
+        else:
+            reps = 2
+        span = period * reps
+        if span > n:
+            continue
+        seg = text[n - period:]
+        if text[n - span:] == seg * reps:
+            return period, reps
+    return None
 
 
 def generate_string(
@@ -277,42 +445,72 @@ def generate_string(
     *,
     max_steps: int = 64,
 ) -> tuple[str, list[int]]:
-    """decodifica il corpo di una stringa JSON (senza le virgolette) un token alla volta."""
+    """Decode a JSON string body (without quotes) one token at a time.
+
+    Within the last ``_STRING_CLOSE_WINDOW`` steps of the budget only
+    tokens that complete the string remain legal, which forces
+    termination instead of relying on post-hoc recovery heuristics.
+
+    If the output degenerates into a repeating loop, the duplicate
+    trailing segments are rolled back (their tokens are popped from the
+    context, keeping a single instance) and the string is force-closed
+    from there.
+    """
     accumulated = ""
     ids = list(input_ids)
-    id_to_text = llm.id_to_text
-    # tiene traccia dei suffissi recenti per beccare loop (capita con alternative regex)
-    recent_suffices: list[str] = []
-    for _ in range(max_steps):
-        if _walk_string(accumulated) == "complete":
+    id_text = llm.id_to_text
+    masks = _grammar_masks(llm)
+    state = "body"
+    closing_only = False
+    for step in range(max_steps):
+        if state == "done":
             return _decode_json_string_body(accumulated[:-1]), ids
-        valid: list[int] = []
-        for tid, text in id_to_text.items():
-            if not text or _has_forbidden_chars(text):
-                continue
-            result = _walk_string(accumulated + text)
-            if result != "invalid":
-                valid.append(tid)
-        if not valid:
+        rep = _trailing_repetition(accumulated)
+        if rep is not None:
+            period, reps = rep
+            excess = period * (reps - 1)
+            removed = 0
+            while removed < excess and len(ids) > len(input_ids):
+                removed += len(id_text[ids.pop()])
+            accumulated = accumulated[:len(accumulated) - removed]
+            # Rollback may have severed an escape sequence; re-derive
+            # the state from scratch.
+            recomputed = _step_string("body", accumulated)
+            if recomputed is None:
+                break
+            state = recomputed
+            closing_only = True
+        force_close = (
+            closing_only or step >= max_steps - _STRING_CLOSE_WINDOW
+        )
+        mask = masks.string_valid[state]
+        if force_close:
+            closing_mask = masks.string_closing[state]
+            if closing_mask.any():
+                mask = closing_mask
+                if closing_only:
+                    # After a degenerate loop, close with the bare quote
+                    # when available instead of letting the model pad
+                    # the value with a decorative closing token
+                    # (e.g. '..."').
+                    bare = closing_mask & masks.bare_quote
+                    if bare.any():
+                        mask = bare
+        if not mask.any():
             break
         logits = llm.get_logits(ids)
-        best = _argmax_masked(logits, valid)
+        best = _argmax_masked_np(logits, mask)
         if best is None:
             break
-        accumulated += id_to_text[best]
-        ids.append(best)
-        # rilevamento loop: se lo stesso suffisso esce 3 volte, mollo tutto
-        recent_suffices.append(id_to_text[best])
-        recent_suffices = recent_suffices[-3:]
-        if len(recent_suffices) == 3 and len(set(recent_suffices)) == 1:
+        text = id_text[best]
+        nxt = _step_string(state, text)
+        if nxt is None:  # unreachable: token came from the valid mask
             break
-    if _walk_string(accumulated) == "complete":
+        state = nxt
+        accumulated += text
+        ids.append(best)
+    if state == "done":
         return _decode_json_string_body(accumulated[:-1]), ids
-    # ripiego: tira fuori una stringa pulita (pattern regex, ecc.)
-    fallback = _extract_string_fallback(accumulated)
-    if fallback is not None:
-        # il risultato del ripiego è già una stringa Python pulita, niente da decodificare
-        return fallback, ids
     raise RuntimeError(
         f"Constrained decoding failed to produce a string "
         f"(accumulated={accumulated!r})"
@@ -320,7 +518,7 @@ def generate_string(
 
 
 def _decode_json_string_body(raw: str) -> str:
-    """risolve le sequenze di escape JSON in un corpo già validato."""
+    """Resolve JSON escape sequences in an already-validated body."""
     out: list[str] = []
     i = 0
     n = len(raw)
@@ -351,103 +549,48 @@ def _decode_json_string_body(raw: str) -> str:
     return "".join(out)
 
 
-def _extract_string_fallback(text: str) -> str | None:
-    """tira fuori una stringa usabile dal testo accumulato dopo aver beccato un loop.
+# ---------------------------------------------------------------------------
+# Literal choice (booleans)
+# ---------------------------------------------------------------------------
 
-    gestisce pattern tipo regex (alternative, ripetizioni) dove il decoder
-    rimane incastrato a sfornare alternative o ripetizioni senza arrivare
-    mai alla virgoletta di chiusura.
+
+def _choose_literal(
+    llm: TokenizedLLM,
+    input_ids: list[int],
+    choices: tuple[str, ...],
+    *,
+    max_steps: int = 8,
+) -> tuple[str, list[int]]:
+    """Decode exactly one of ``choices`` by masking everything else.
+
+    No terminator is consumed: the returned ids end with the literal
+    itself, so the caller controls the following separator.
     """
-    # 1. trova un corpo di stringa completo
-    for i, ch in enumerate(text):
-        if ch == '"' and _walk_string(text[:i]) == "complete":
-            return _decode_json_string_body(text[:i])
-
-    # 2. se il testo finisce con '|' (alternativa regex), pigliamo l'ultima alternativa
-    # tipo "a|e|i|o|u|" -> "a|e|i|o|u"
-    if text.endswith("|"):
-        stripped = text[:-1]
-        last_bar = stripped.rfind("|")
-        if last_bar > 0:
-            last_alt = stripped[last_bar + 1:]
-        elif stripped:
-            last_alt = stripped
-        else:
-            last_alt = "a"
-        return last_alt
-
-    # 3. becca pattern di ripetizione regex (stesso segmento ripetuto)
-    # tipo "cat.*cat.*cat.*" -> guarda l'ultimo segmento completo
-    # controlla se il testo ha dentro pattern ripetuti (a occhio: 2+ volte)
-    seg = _find_repeating_segment(text)
-    if seg:
-        return seg
-
-    # 4. modalità generica: leva la robaccia in coda e trova una virgoletta
-    cleaned = _strip_invalid_suffix(text)
-    if cleaned and _walk_string(cleaned) == "complete":
-        return _decode_json_string_body(cleaned)
-    return None
-
-
-def _find_repeating_segment(text: str) -> str | None:
-    """trova un segmento ripetuto tipo regex alla fine del testo.
-
-
-    ritorna l'ultimo segmento completo prima che parta la ripetizione,
-    tipo "cat.*cat.*cat.*" -> "cat.*" -> ma poi tagliato a "cat".
-    """
-    n = len(text)
-    if n < 4:
-        return None
-    # prova le dimensioni dei segmenti dal piccolo al grande
-    for seg_len in range(2, n // 3):
-        # controlla se il testo finisce con 2 o più ripetizioni di questo segmento
-        for repeat in range(2, 5):
-            end_len = seg_len * repeat
-            if end_len > n:
-                break
-            segment = text[n - seg_len:n - end_len + seg_len]
-            is_repeat = all(
-                text[
-                    n - end_len + i * seg_len:n - end_len + (i + 1) * seg_len
-                ] == segment
-                for i in range(repeat)
-            )
-            if is_repeat:
-                return segment
-    # ripiego: torna indietro fino all'ultimo gruppo alfanumerico
-    i = n - 1
-    while i >= 0 and not text[i].isalnum():
-        i -= 1
-    while i >= 0 and text[i].isalnum():
-        i -= 1
-    start = i + 1
-    if start < n:
-        return text[start:n]
-    return None
-
-
-def _strip_invalid_suffix(text: str) -> str:
-    """leva la roba in coda che non può stare dentro una stringa valida."""
-    # via le sequenze di escape monche alla fine
-    stripped = text
-    while stripped and stripped[-1] == "\\" and stripped[-2:] != "\\\\":
-        stripped = stripped[:-1]
-    # via la roba dopo l'ultimo escape completo
-    last_escape = max(
-        (i for i in range(len(stripped)) if stripped[i] == "\\"),
-        default=-1
+    accumulated = ""
+    ids = list(input_ids)
+    id_text = llm.id_to_text
+    for _ in range(max_steps):
+        if accumulated in choices:
+            return accumulated, ids
+        valid: list[int] = []
+        for tid, text in llm.clean_vocab:
+            candidate = accumulated + text
+            if any(choice.startswith(candidate) for choice in choices):
+                valid.append(tid)
+        if not valid:
+            break
+        logits = llm.get_logits(ids)
+        best = _argmax_masked(logits, valid)
+        if best is None:
+            break
+        accumulated += id_text[best]
+        ids.append(best)
+    if accumulated in choices:
+        return accumulated, ids
+    raise RuntimeError(
+        f"Constrained decoding failed to choose among {choices!r} "
+        f"(accumulated={accumulated!r})"
     )
-    if last_escape >= 0 and last_escape < len(stripped) - 1:
-        nxt = stripped[last_escape + 1]
-        if nxt not in ('"', "\\", "/", "b", "f", "n", "r", "t", "u"):
-            stripped = stripped[:last_escape]
-    # via la roba dopo l'ultima virgoletta
-    last_quote = stripped.rfind('"')
-    if last_quote > 0:
-        stripped = stripped[:last_quote]
-    return stripped
 
 
 # ---------------------------------------------------------------------------
@@ -455,11 +598,35 @@ def _strip_invalid_suffix(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class _ValueResult(BaseModel):
+    """Generated parameter value together with the updated context ids."""
+
+    model_config = ConfigDict(frozen=True)
+
+    python_value: Any
+    ids: list[int]
+
+
 def _coerce_number(text: str, expected: str) -> float | int:
-    """converte il testo numerico decodificato nello scalare Python giusto."""
+    """Convert decoded numeric text into the matching Python scalar."""
     if expected == "integer":
-        return int(float(text))
+        return int(text)
     return float(text)
+
+
+def _default_value(expected: str) -> float | int | str | bool:
+    """Return a type-correct neutral value for a parameter type.
+
+    Used only as a last-resort fallback so that the output always stays
+    schema-valid even if a single value decode fails.
+    """
+    defaults: dict[str, float | int | str | bool] = {
+        "number": 0.0,
+        "integer": 0,
+        "string": "",
+        "boolean": False,
+    }
+    return defaults[expected]
 
 
 def call_for_prompt(
@@ -469,7 +636,7 @@ def call_for_prompt(
     *,
     debug: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """trasforma un singolo prompt in linguaggio naturale in ``(name, parameters)``."""
+    """Turn a single natural-language prompt into ``(name, parameters)``."""
     function_names = [fn.name for fn in functions]
     fn_by_name = {fn.name: fn for fn in functions}
 
@@ -483,7 +650,7 @@ def call_for_prompt(
     if debug:
         print(f"[debug]   -> name={chosen}")
 
-    # buttiamo dentro l'apertura strutturale una volta che sappiamo il nome.
+    # Inject the structural JSON opening once the name is known.
     ids = ids + llm.encode('", "parameters": {')
 
     parameters: dict[str, Any] = {}
@@ -491,22 +658,22 @@ def call_for_prompt(
     for index, (param_name, spec) in enumerate(items):
         is_last = index == len(items) - 1
         ids = ids + llm.encode(f'"{param_name}": ')
-        value = _generate_value(llm, ids, spec, is_last=is_last)
+        try:
+            value = _generate_value(llm, ids, spec, is_last=is_last)
+        except RuntimeError:
+            # Keep the output schema-valid: fall back to a neutral value
+            # for this parameter only.
+            value = _ValueResult(
+                python_value=_default_value(spec.type), ids=ids
+            )
         parameters[param_name] = value.python_value
         ids = value.ids
-        if not is_last:
+        if not is_last and spec.type in ("string", "boolean"):
+            # number/integer decoding already consumed the "," terminator.
             ids = ids + llm.encode(", ")
         if debug:
             print(f"[debug]   -> {param_name}={value.python_value!r}")
     return chosen, parameters
-
-
-@dataclass
-class _ValueResult:
-    """valore del parametro generato insieme agli id di contesto aggiornati."""
-
-    python_value: Any
-    ids: list[int]
 
 
 def _generate_value(
@@ -516,42 +683,23 @@ def _generate_value(
     *,
     is_last: bool,
 ) -> _ValueResult:
-    """decodifica il valore di un singolo parametro in base al tipo dichiarato."""
+    """Decode a single parameter value according to its declared type."""
     terminator = "}" if is_last else ","
     if spec.type in ("number", "integer"):
-        text, new_ids = generate_number(llm, ids, terminator)
-        return _ValueResult(_coerce_number(text, spec.type), new_ids)
+        text, new_ids = generate_number(
+            llm,
+            ids,
+            terminator,
+            allow_fraction=spec.type == "number",
+        )
+        return _ValueResult(
+            python_value=_coerce_number(text, spec.type), ids=new_ids
+        )
     if spec.type == "string":
         ids_with_quote = ids + llm.encode('"')
         text, new_ids = generate_string(llm, ids_with_quote)
-        return _ValueResult(text, new_ids)
+        return _ValueResult(python_value=text, ids=new_ids)
     if spec.type == "boolean":
-        # booleani: scelta vincolata tra "true" e "false".
-        accumulated = ""
-        choices = ["true" + terminator, "false" + terminator]
-        cur = list(ids)
-        id_to_text = llm.id_to_text
-        for _ in range(8):
-            if accumulated in choices:
-                break
-            valid: list[int] = []
-            for tid, text in id_to_text.items():
-                if not text or _has_forbidden_chars(text):
-                    continue
-                candidate = accumulated + text
-                if any(c.startswith(candidate) for c in choices):
-                    valid.append(tid)
-            if not valid:
-                break
-            logits = llm.get_logits(cur)
-            best = _argmax_masked(logits, valid)
-            if best is None:
-                break
-            accumulated += id_to_text[best]
-            cur.append(best)
-        if accumulated.startswith("true"):
-            return _ValueResult(True, cur)
-        if accumulated.startswith("false"):
-            return _ValueResult(False, cur)
-        raise RuntimeError(f"Failed to decode boolean (got {accumulated!r})")
+        literal, new_ids = _choose_literal(llm, ids, ("true", "false"))
+        return _ValueResult(python_value=literal == "true", ids=new_ids)
     raise ValueError(f"Unsupported parameter type: {spec.type}")

@@ -1,4 +1,4 @@
-.PHONY: install run debug clean lint lint-strict
+.PHONY: install run debug debug-trace clean lint lint-strict
 
 export UV_CACHE_DIR ?= /sgoinfre/tcostant/uv-cache
 export HF_HOME ?= /sgoinfre/tcostant/hf-cache
@@ -19,6 +19,12 @@ run:
 		--output $(OUTPUT)
 
 debug:
+	$(PY) -m pdb -m $(SRC) \
+		--functions_definition $(INPUT_FUNCTIONS) \
+		--input $(INPUT_TESTS) \
+		--output $(OUTPUT)
+
+debug-trace:
 	$(PY) -m $(SRC) \
 		--functions_definition $(INPUT_FUNCTIONS) \
 		--input $(INPUT_TESTS) \

@@ -1,1 +1,1 @@
-"""pipeline che chiama funzioni con decoding vincolato."""
+"""Function-calling pipeline with constrained decoding."""

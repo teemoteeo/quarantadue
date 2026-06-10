@@ -1,201 +1,251 @@
-<i>Questo progetto è stato creato come parte del curriculum 42 da tcostant.</i>
+<i>This project has been created as part of the 42 curriculum by tcostant.</i>
 
 # Call Me Maybe
 
-Ehi, ci siamo appena conosciuti, ed è una pazzia, ma ecco il mio numero quindi...
+Hey, I just met you, and this is crazy, but here's my number, so...
 
-Un sistema di function calling che usa il decoding vincolato con Qwen3-0.6B, un piccolo modello
-linguistico da 0.6B parametri. Il sistema traduce prompt in linguaggio naturale in chiamate di
-funzione strutturate ed eseguibili, con argomenti tipizzati.
+A function-calling system using constrained decoding with Qwen3-0.6B, a small
+0.6B-parameter language model. The system translates natural-language prompts
+into structured, executable function calls with typed arguments.
 
-## Descrizione
+## Description
 
-Call Me Maybe implementa una pipeline di decoding vincolato che garantisce il 100% di output JSON
-validi per il function calling, anche con modelli linguistici piccoli che altrimenti fallirebbero
-oltre il 70% delle volte. Il progetto mostra come una guida strutturale possa ottenere
-un'affidabilità quasi perfetta da modelli compatti.
+Call Me Maybe implements a constrained-decoding pipeline that guarantees 100%
+valid JSON output for function calling, even with small language models that
+would otherwise fail well over half of the time. The project demonstrates how
+structural guidance achieves near-perfect reliability from compact models.
 
-### Come Funziona
+### How It Works
 
-1. **Catalogo di Funzioni**: Le funzioni disponibili sono definite con nomi, tipi di parametri e
-   descrizioni
-2. **Costruzione del Contesto**: Si costruisce un prompt che combina il catalogo di funzioni con
-   la richiesta dell'utente
-3. **Decoding Vincolato**: Ad ogni step di generazione dei token, i token non validi (quelli che
-   romperebbero la struttura JSON o lo schema) vengono mascherati a `-inf`
-4. **Selezione del Token**: Solo i token validi vengono considerati, così l'output rispetta lo
-   schema atteso
+1. **Function Catalog**: Available functions are defined with names, parameter
+   types, and descriptions
+2. **Context Building**: A prompt is built combining the function catalog with
+   the user's request
+3. **Constrained Decoding**: At every token-generation step, invalid tokens
+   (those that would break the JSON structure or the schema) are masked to
+   `-inf`
+4. **Token Selection**: Only valid tokens are considered, so the output
+   respects the expected schema by construction
 
-### Caratteristiche Principali
+### Key Features
 
-- Decoding vincolato tramite mascheramento dei token a livello di vocabolario
-- Supporto per i tipi JSON number, string e boolean
-- Validazione della grammatica basata su DFA per i valori JSON
-- Rilevamento di loop per pattern stile regex
-- Fallback morbido per i casi limite
+- Constrained decoding via vocabulary-level token masking
+- Support for JSON number, integer, string, and boolean types
+- DFA-based grammar validation for JSON values
+- Guaranteed termination: near the step budget, the string grammar only
+  admits tokens that close the value (no recovery heuristics needed)
+- Logit-arbitrated selection between catalog names that share a prefix
+  (e.g. `fn_add` vs `fn_add_numbers`)
+- Graceful degradation: a failed value decode falls back to a type-correct
+  neutral value, so the output file is always schema-valid
 
-## Istruzioni
+## Instructions
 
-### Installazione
+### Installation
 
 ```bash
 uv sync
 ```
 
-### Utilizzo
+### Usage
 
-Lancia la pipeline di function calling:
+Run the function-calling pipeline (all arguments are optional and default to
+the subject paths):
 
 ```bash
-make run
-# oppure
+uv run python -m src
+# equivalent to
 uv run python -m src \
     --functions_definition data/input/functions_definition.json \
     --input data/input/function_calling_tests.json \
     --output data/output/function_calling_results.json
 ```
 
-### Modalità Debug
+### Debug Modes
 
-Esegui con l'output di debug che mostra le decisioni intermedie del decoding:
+Step through the program with Python's built-in debugger:
 
 ```bash
-make debug
+make debug        # runs under pdb
+```
+
+Print intermediate decoding decisions:
+
+```bash
+make debug-trace  # runs with --debug
 ```
 
 ### Linting
 
-Controlla la qualità del codice:
-
 ```bash
-make lint
+make lint         # flake8 + mypy with the subject's flags
+make lint-strict  # flake8 + mypy --strict
 ```
 
-### Pulizia
-
-Rimuovi i file generati:
+### Cleaning
 
 ```bash
 make clean
 ```
 
-## Spiegazione dell'Algoritmo
+## Algorithm Explanation
 
-### Approccio del Decoding Vincolato
+### Constrained Decoding Approach
 
-Il decoder lavora a livello di token con un approccio basato su maschere:
+The decoder works at token level with a mask-based approach:
 
-1. **Mascheramento a Livello di Token**: Per ogni step di generazione, il modello produce i logit
-   per tutti i possibili token successivi
-2. **Validazione della Grammatica**: I token vengono validati contro un DFA che rappresenta la
-   grammatica attesa
-3. **Mascheramento dei Token Non Validi**: I token che romperebbero la struttura JSON o
-   violerebbero lo schema vengono mascherati a `-inf`
-4. **Selezione Greedy**: Si sceglie il token valido con punteggio più alto
+1. **Token-Level Masking**: For every generation step the model produces
+   logits for all possible next tokens
+2. **Grammar Validation**: Tokens are validated against a DFA representing
+   the expected grammar
+3. **Invalid-Token Masking**: Tokens that would break the JSON structure or
+   violate the schema are masked to `-inf`
+4. **Greedy Selection**: The highest-scoring valid token is selected
 
-### Tre Modalità di Grammatica
+### Grammar Modes
 
-Il decoder usa una logica di validazione separata per:
+The decoder uses separate validation logic for:
 
-- **Selezione del Nome di Funzione**: Vincolata a combaciare con uno dei nomi di funzione
-  disponibili
-- **JSON Number**: Valida interi con segno e decimali con parte frazionaria opzionale
-- **JSON String**: Gestisce le sequenze di escape e garantisce UTF-8 valido dopo il decoding
+- **Function-Name Selection**: Constrained to match one of the catalog
+  names. When the accumulated text is both a complete name and a prefix of
+  a longer one, the model's logits arbitrate between stopping (closing
+  quote) and continuing.
+- **JSON Number**: Validates signed integers and decimals. For parameters
+  declared `integer`, the decimal point is excluded from the grammar, so
+  fractional values can never be decoded and silently truncated.
+- **JSON String**: Handles escape sequences and guarantees valid UTF-8
+  after decoding. Within the last few steps of the generation budget only
+  string-closing tokens remain legal, which forces termination by
+  construction.
+- **Boolean**: A constrained choice between the literals `true` and
+  `false`.
 
-### Mappatura da Token a Testo
+### Token-to-Text Mapping
 
-Un componente cruciale è la mappatura `id_to_text` che traduce gli ID del vocabolario nella loro
-rappresentazione testuale letterale. Questa mappatura viene costruita così:
+A crucial component is the `id_to_text` mapping that translates vocabulary
+ids into their literal text representation. It is built by:
 
-1. Si carica il JSON del vocabolario dal tokenizer
-2. Si ricostruisce la mappatura byte-to-unicode di GPT-2
-3. Si traduce ogni stringa di token tramite la mappatura inversa
-4. Si conservano solo le rappresentazioni testuali UTF-8 valide
+1. Loading the tokenizer's vocabulary JSON
+2. Rebuilding the GPT-2 byte-to-unicode mapping locally
+3. Translating every token string through the inverse mapping
+4. Keeping only valid UTF-8 text representations
 
-## Scelte di Design
+A pre-filtered `clean_vocab` list (text present, no control characters) is
+computed once at load time; the decoder iterates this list at every step
+instead of re-filtering the whole vocabulary.
 
-### Perché il Decoding Vincolato?
+## Design Decisions
 
-Gli approcci basati solo su prompt con gli LLM raggiungono appena ~30% di affidabilità per output
-strutturati. Il decoding vincolato garantisce la validità per costruzione, non per probabilità.
+### Why Constrained Decoding?
 
-### Livello di Token vs. Livello di Carattere
+Prompt-only approaches with small LLMs reach roughly 30% reliability for
+structured output. Constrained decoding guarantees validity by
+construction, not by probability.
 
-Lavorare a livello di token (invece che di carattere) offre:
-- Generazione più veloce (meno iterazioni)
-- Coerenza migliore (unità subword)
-- Integrazione con il vocabolario nativo del modello
+### Token Level vs. Character Level
 
-### Strategia di Mappatura del Vocabolario
+Working at token level (instead of character level) provides:
 
-Il progetto reimplementa in locale la mappatura BPE byte-level di GPT-2 per evitare di importare
-la libreria `tiktoken`, mantenendo le dipendenze al minimo.
+- Faster generation (fewer iterations)
+- Better coherence (subword units)
+- Native integration with the model's vocabulary
 
-## Analisi delle Prestazioni
+### Forced Closure Instead of Recovery Heuristics
 
-### Accuratezza
+Earlier designs detected generation loops after the fact and recovered a
+usable string with heuristics. The current design prevents the problem
+instead: near the step budget the mask only admits tokens that complete
+the value, so every decode either finishes or raises -- no post-hoc
+guessing. If the output degenerates into a repeating cycle (e.g.
+``cat.*cat.*cat.*``), the duplicate trailing segments are rolled back by
+popping their tokens from the decoding context -- keeping exactly one
+instance -- and the string is closed with the plain quote token from
+there. Legitimate short runs such as ``"aaa"`` are preserved by requiring
+more repetitions before short segments count as a loop.
 
-- Selezione della funzione: 100% (funzione corretta identificata per tutti i prompt di test)
-- Estrazione degli argomenti: 90%+ (tutti gli argomenti combaciano con i tipi attesi)
+### Vocabulary Mapping Strategy
 
-### Velocità
+The project reimplements the GPT-2 byte-level BPE mapping locally to avoid
+importing third-party tokenizer libraries, keeping dependencies minimal.
 
-- Funzioni semplici: <1s per prompt
-- Pattern regex complessi: 5-40s per prompt
-- Tempo totale per 11 casi di test: ~80s
+### About the `torch` entry in pyproject.toml
 
-### Affidabilità
+`src/` never imports torch or transformers (both are forbidden by the
+subject). Torch is required by the **provided** `llm_sdk` package; it is
+declared in the project's dependencies only because `uv` applies
+`[tool.uv.sources]` index pins (CPU wheels) to direct dependencies.
 
-- JSON valido: 100% (ogni output è parsabile)
-- Conformità allo schema: 100% (tutti gli output rispettano le definizioni di funzione)
+## Performance Analysis
 
-## Sfide Affrontate
+### Accuracy
 
-### Generazione di Pattern Regex
+- Function selection: 100% on the provided test prompts
+- Argument extraction: 90%+ (arguments match the expected types)
 
-Le prime versioni si bloccavano in loop quando generavano pattern regex con tante alternative (es.
-pattern per vocali `a|e|i|o|u|...`). La soluzione è stata:
+### Speed
 
-1. Rilevare i loop tracciando i suffissi recenti dei token
-2. Se lo stesso suffisso compare 3 volte di fila, interrompere il loop
-3. Estrarre una stringa valida dal testo accumulato usando delle euristiche
+- Simple functions: < 1 s per prompt
+- Long string arguments (e.g. regex patterns): bounded by the 64-token
+  budget with forced closure
+- Total time for the 11 provided test cases: about 1-2 minutes on CPU
 
-### Gestione degli Escape nelle Stringhe
+### Reliability
 
-Le stringhe JSON richiedono una gestione corretta delle sequenze di escape (`\n`, `\t`, `\"`,
-ecc.). Il decoder valida le sequenze di escape durante la generazione e le decodifica dopo.
+- Valid JSON: 100% (every output parses)
+- Schema compliance: 100% (a failed value decode degrades to a neutral
+  typed value instead of producing invalid output)
 
-## Strategia di Testing
+## Challenges Faced
 
-### Validazione dell'Input
+### Regex-Pattern Generation
 
-- Test con file JSON validi e non validi
-- Test con file mancanti
-- Verifica che vengano mostrati messaggi di errore appropriati
+Early versions stalled in loops when generating regex patterns with many
+alternations (e.g. vowel patterns `a|e|i|o|u|...`). The first fix detected
+loops and recovered heuristically; the final design replaces detection
+with prevention: the string grammar is forced shut near the budget, which
+removed about 100 lines of recovery code.
 
-### Conformità allo Schema
+### Prefix-Overlapping Function Names
 
-- Test di tutti i tipi di parametro (number, string, boolean)
-- Test di funzioni con più parametri
-- Test dei casi limite (numeri grandi, caratteri speciali, stringhe vuote)
+With catalogs containing names where one is a prefix of another, a naive
+decoder always stops at the shorter name. The fix lets the model's logits
+arbitrate between the closing-quote token and the best continuation token.
 
-### Test End-to-End
+### String Escape Handling
 
-- Lancia l'intera pipeline con i prompt di test forniti
-- Verifica che l'output rispetti la struttura JSON attesa
-- Controlla che i nomi delle funzioni e i tipi degli argomenti siano corretti
+JSON strings require correct escape handling (`\n`, `\t`, `\"`, `\uXXXX`).
+The decoder validates escape sequences during generation and resolves them
+afterwards.
 
-## Risorse
+## Testing Strategy
 
-- [Modello Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
+Manual validation, executed before every submission:
+
+- **Input validation**: valid and invalid JSON files, missing files,
+  verifying clear error messages and nonzero exit codes
+- **Schema compliance**: all parameter types (number, integer, string,
+  boolean), multi-parameter functions, edge cases (large numbers, special
+  characters, empty strings)
+- **CLI contract**: bare `uv run python -m src` must work using the
+  default subject paths
+- **Failure modes**: invalid model id must produce a clear error message,
+  not a traceback
+- **End-to-end**: full pipeline on the provided prompts, validating the
+  output JSON structure, function names, and argument types
+
+## Resources
+
+- [Qwen3-0.6B model](https://huggingface.co/Qwen/Qwen3-0.6B)
 - [Hugging Face Transformers](https://huggingface.co/docs/transformers/)
 - [GPT-2 Byte-Pair Encoding](https://huggingface.co/docs/transformers/tokenizer_summary)
-- [Decoding Vincolato per Output Strutturato](https://arxiv.org/abs/2109.04335)
+- [Constrained Decoding for Structured Output](https://arxiv.org/abs/2109.04335)
 
-## Uso dell'IA
+## AI Usage
 
-L'IA è stata usata per:
-- Capire l'architettura dei transformer e la tokenizzazione
-- Fare debug dei casi limite del decoding vincolato
-- Rivedere il codice per la conformità a PEP 8
-- Spiegare le tecniche di validazione della grammatica JSON
+AI was used for:
+
+- Understanding transformer architecture and tokenization
+- Debugging constrained-decoding edge cases
+- Reviewing code for PEP 8 / flake8 / mypy compliance
+- Explaining JSON grammar validation techniques
+- Auditing the project against the subject requirements
