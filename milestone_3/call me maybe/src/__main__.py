@@ -6,12 +6,14 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .decoder import call_for_prompt, default_value
-from .loader import LoaderError, load_functions, load_tests, save_results
-from .model import TokenizedLLM
-from .schemas import FunctionCallResult, FunctionDefinition
+if TYPE_CHECKING:
+    from .schemas import FunctionDefinition
+
+# NB: gli import pesanti (decoder -> model -> torch) sono dentro _run, non
+# qui in cima: così un Ctrl-C durante il caricamento di torch viene catturato
+# dal try/except KeyboardInterrupt di main invece di stampare un traceback.
 
 DEFAULT_FUNCTIONS = Path("data/input/functions_definition.json")
 DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
@@ -70,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     """Logica della pipeline, isolata così main può catturare KeyboardInterrupt."""
+    from .decoder import call_for_prompt
+    from .loader import LoaderError, load_functions, load_tests, save_results
+    from .model import TokenizedLLM
+    from .schemas import FunctionCallResult
+
     try:
         functions = load_functions(args.functions_definition)
         tests = load_tests(args.input)
@@ -130,6 +137,8 @@ def _fallback_call(
     Emette la prima funzione del catalogo con argomenti neutri corretti per tipo,
     così il file di output non ha mai un nome vuoto o chiavi mancanti.
     """
+    from .decoder import default_value
+
     fn = functions[0]
     params = {
         name: default_value(spec.type)
