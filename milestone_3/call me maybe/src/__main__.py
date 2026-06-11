@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .schemas import FunctionCallResult, FunctionDefinition
+    from .model import TokenizedLLM
+    from .schemas import FunctionDefinition
 
 DEFAULT_FUNCTIONS = Path("data/input/functions_definition.json")
 DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
