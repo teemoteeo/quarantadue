@@ -118,12 +118,14 @@ def _run(args: argparse.Namespace) -> int:
                 parameters=params,
             )
         )
-
-    try:
-        save_results(args.output, results)
-    except OSError as exc:
-        print(f"error writing {args.output}: {exc}", file=sys.stderr)
-        return 3
+        # Salvo dopo ogni prompt: se qualcosa esplode più avanti (o l'utente
+        # interrompe) i risultati già calcolati restano su disco invece di
+        # perdere l'intero run all'ultimo passo.
+        try:
+            save_results(args.output, results)
+        except (OSError, UnicodeEncodeError) as exc:
+            print(f"error writing {args.output}: {exc}", file=sys.stderr)
+            return 3
 
     print(f"Scritti {len(results)} risultato/i in {args.output}.")
     return 0

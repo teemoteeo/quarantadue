@@ -35,11 +35,16 @@ def load_functions(path: Path) -> list[FunctionDefinition]:
     """Carica e valida il file delle definizioni delle funzioni."""
     payload = _read_json(path)
     try:
-        return _FUNCTIONS_ADAPTER.validate_python(payload)
+        functions = _FUNCTIONS_ADAPTER.validate_python(payload)
     except ValidationError as exc:
         raise LoaderError(
             f"Invalid function definitions in {path}: {exc}"
         ) from exc
+    if not functions:
+        # Senza funzioni il decoder non ha nulla da scegliere e il fallback
+        # (functions[0]) andrebbe in IndexError: meglio fallire pulito qui.
+        raise LoaderError(f"No function definitions in {path}: catalog is empty")
+    return functions
 
 
 def load_tests(path: Path) -> list[TestPrompt]:
@@ -57,6 +62,11 @@ def save_results(path: Path, results: Iterable[FunctionCallResult]) -> None:
     """Scrive i risultati come JSON, creando le directory padre se necessario."""
     path.parent.mkdir(parents=True, exist_ok=True)
     data = [r.model_dump() for r in results]
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
+    # Serializzo e codifico PRIMA di aprire il file: se un valore contenesse un
+    # carattere non codificabile in UTF-8 (es. surrogato isolato) l'errore scatta
+    # qui, senza troncare un output valido già scritto.
+    encoded = (
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    with path.open("wb") as handle:
+        handle.write(encoded)
