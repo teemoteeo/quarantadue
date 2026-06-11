@@ -37,7 +37,7 @@ class FunctionDefinition(BaseModel):
 
 
 class TestPrompt(BaseModel):
-    """Un prompt in linguaggio naturale da trasformare in una chiamata a funzione."""
+    """Prompt in linguaggio naturale da trasformare in una chiamata."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -45,7 +45,7 @@ class TestPrompt(BaseModel):
 
 
 class FunctionCallResult(BaseModel):
-    """Il risultato della risoluzione di un prompt in una chiamata a funzione concreta."""
+    """Risultato della risoluzione di un prompt in una chiamata concreta."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -1,8 +1,8 @@
 """Wrapper attorno a ``Small_LLM_Model`` che espone utility a livello di token.
 
-Il wrapper tiene il progetto libero da dipendenze dirette da ``torch`` / ``transformers``
--- ogni chiamata va attraverso i metodi pubblici dell'SDK e lavora su
-plain list Python.
+Il wrapper tiene il progetto libero da dipendenze dirette da ``torch`` /
+``transformers`` -- ogni chiamata va attraverso i metodi pubblici dell'SDK
+e lavora su plain list Python.
 """
 
 from __future__ import annotations
@@ -49,10 +49,10 @@ def _bytes_to_unicode_map() -> dict[int, str]:
 
 
 def _decode_vocab_token(token_str: str, u2b: dict[str, int]) -> str:
-    """Traduce una stringa token di vocab.json nel testo letterale che codifica.
+    """Traduce una stringa token di vocab.json nel testo che codifica.
 
-    I token che non possono essere mappati (token speciali, sequenze UTF-8 parziali)
-    ritornano una stringa vuota così la logica di masking non li seleziona mai.
+    I token non mappabili (token speciali, sequenze UTF-8 parziali)
+    ritornano stringa vuota così il masking non li seleziona mai.
     """
     try:
         byte_values = bytes(u2b[c] for c in token_str)
@@ -65,10 +65,10 @@ def _decode_vocab_token(token_str: str, u2b: dict[str, int]) -> str:
 
 
 class TokenizedLLM:
-    """Facade leggera su :class:`Small_LLM_Model` con utility sul vocabolario."""
+    """Facade leggera su ``Small_LLM_Model`` con utility sul vocabolario."""
 
     def __init__(self, model_name: str = "Qwen/Qwen3-0.6B") -> None:
-        """Carica il modello e costruisce la tabella ``id -> testo letterale``."""
+        """Carica il modello e costruisce la tabella ``id -> testo``."""
         self._model = Small_LLM_Model(model_name=model_name)
         self._id_to_text: list[str] = []
         self._clean_vocab: list[tuple[int, str]] = []
@@ -98,17 +98,17 @@ class TokenizedLLM:
 
     @property
     def id_to_text(self) -> list[str]:
-        """Testo letterale di ogni id token del vocabolario base, indicizzato per id."""
+        """Testo letterale di ogni token base, indicizzato per id."""
         return self._id_to_text
 
     @property
     def clean_vocab(self) -> list[tuple[int, str]]:
-        """Coppie ``(id, testo)`` pre-filtrate sicure per la decodifica vincolata."""
+        """Coppie ``(id, testo)`` pre-filtrate per il decoding vincolato."""
         return self._clean_vocab
 
     @property
     def vocab_size(self) -> int:
-        """Numero di token del vocabolario base (token speciali/aggiunti esclusi)."""
+        """Numero di token del vocabolario base (speciali esclusi)."""
         return self._vocab_size
 
     def encode(self, text: str) -> list[int]:

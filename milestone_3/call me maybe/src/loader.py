@@ -43,7 +43,9 @@ def load_functions(path: Path) -> list[FunctionDefinition]:
     if not functions:
         # Senza funzioni il decoder non ha nulla da scegliere e il fallback
         # (functions[0]) andrebbe in IndexError: meglio fallire pulito qui.
-        raise LoaderError(f"No function definitions in {path}: catalog is empty")
+        raise LoaderError(
+            f"No function definitions in {path}: catalog is empty"
+        )
     return functions
 
 
@@ -59,12 +61,12 @@ def load_tests(path: Path) -> list[TestPrompt]:
 
 
 def save_results(path: Path, results: Iterable[FunctionCallResult]) -> None:
-    """Scrive i risultati come JSON, creando le directory padre se necessario."""
+    """Scrive i risultati come JSON, creando le directory padre."""
     path.parent.mkdir(parents=True, exist_ok=True)
     data = [r.model_dump() for r in results]
-    # Serializzo e codifico PRIMA di aprire il file: se un valore contenesse un
-    # carattere non codificabile in UTF-8 (es. surrogato isolato) l'errore scatta
-    # qui, senza troncare un output valido già scritto.
+    # Serializzo e codifico PRIMA di aprire il file: se un valore avesse
+    # un carattere non codificabile in UTF-8 (es. surrogato isolato)
+    # l'errore scatta qui, senza troncare un output valido già scritto.
     encoded = (
         json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     ).encode("utf-8")

@@ -1,4 +1,4 @@
-"""Punto d'ingresso CLI per ``call me maybe``, il nostro function caller vincolato."""
+"""Punto d'ingresso CLI di ``call me maybe``, function caller vincolato."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parsa gli argomenti dalla riga di comando (i path hanno tutti dei default dal subject)."""
+    """Parsa gli argomenti CLI (i path hanno i default del subject)."""
     parser = argparse.ArgumentParser(
         prog="call-me-maybe",
         description=(
             "Risolve prompt in linguaggio naturale in chiamate di funzioni "
-            "strutturate utilizzando un piccolo LLM locale con decoding vincolato."
+            "strutturate con un piccolo LLM locale e decoding vincolato."
         ),
     )
     parser.add_argument(
@@ -40,13 +40,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--input",
         type=Path,
         default=DEFAULT_INPUT,
-        help=f"Percorso a function_calling_tests.json (default: {DEFAULT_INPUT}).",
+        help=f"Percorso a function_calling_tests.json "
+             f"(default: {DEFAULT_INPUT}).",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help=f"Dove scrivere il JSON dei risultati (default: {DEFAULT_OUTPUT}).",
+        help=f"Dove scrivere il JSON dei risultati "
+             f"(default: {DEFAULT_OUTPUT}).",
     )
     parser.add_argument(
         "--model",
@@ -71,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    """Logica della pipeline, isolata così main può catturare KeyboardInterrupt."""
+    """Logica della pipeline; main la avvolge per il KeyboardInterrupt."""
     from .decoder import call_for_prompt
     from .loader import LoaderError, load_functions, load_tests, save_results
     from .model import TokenizedLLM
@@ -134,10 +136,10 @@ def _run(args: argparse.Namespace) -> int:
 def _fallback_call(
     functions: list[FunctionDefinition],
 ) -> tuple[str, dict[str, Any]]:
-    """Risultato di emergenza schema-valido quando la decodifica di un prompt fallisce.
+    """Risultato di emergenza schema-valido per un prompt fallito.
 
-    Emette la prima funzione del catalogo con argomenti neutri corretti per tipo,
-    così il file di output non ha mai un nome vuoto o chiavi mancanti.
+    Emette la prima funzione del catalogo con argomenti neutri corretti
+    per tipo, così l'output non ha mai un nome vuoto o chiavi mancanti.
     """
     from .decoder import default_value
 

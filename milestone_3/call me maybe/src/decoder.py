@@ -89,7 +89,7 @@ def _pick_token(
 
 
 def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
-    """Costruisce il prompt testuale che imposta il task di function-calling."""
+    """Costruisce il prompt testuale del task di function-calling."""
     lines: list[str] = [
         "You are a function-calling assistant. Pick the single best function "
         "from the catalog below and fill in its arguments based on the "
@@ -370,7 +370,7 @@ class GrammarMasks:
     def prefix_mask(
         self, accumulated: str, targets: tuple[str, ...]
     ) -> BoolMask:
-        """Maschera dei token che tengono ``accumulated`` prefisso di un target."""
+        """Token che mantengono ``accumulated`` prefisso di un target."""
         key = (accumulated, targets)
         mask = self._prefix.get(key)
         if mask is None:
@@ -387,7 +387,7 @@ class GrammarMasks:
     def number(
         self, terminator: str, allow_fraction: bool
     ) -> dict[str, BoolMask]:
-        """Maschere per una grammatica numerica, costruite alla prima chiamata."""
+        """Maschere di una grammatica numerica, costruite lazy."""
         key = (terminator, allow_fraction)
         masks = self._number.get(key)
         if masks is None:
