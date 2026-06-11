@@ -1,7 +1,7 @@
 .PHONY: install run debug debug-trace clean lint lint-strict
 
-export UV_CACHE_DIR ?= /sgoinfre/tcostant/uv-cache
-export HF_HOME ?= /sgoinfre/tcostant/hf-cache
+export UV_CACHE_DIR ?= $(HOME)/.cache/uv
+export HF_HOME ?= $(HOME)/.cache/huggingface
 
 PY := uv run python
 SRC := src

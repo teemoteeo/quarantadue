@@ -1,25 +1,25 @@
-"""Constrained-decoding primitives that extract structured function calls.
+"""Primitive per il decoding vincolato che estraggono chiamate di funzioni strutturate.
 
-The decoder works at token level. At each generation step it:
+Il decoder opera a livello di token. Ad ogni passo di generazione:
 
-1. Asks the model for next-token logits.
-2. Computes the set of token ids whose literal text keeps the accumulated
-   output on a path that is still legal under the active grammar
-   (function-name choice / JSON number / JSON string / boolean literal).
-   For the string and number grammars this set is a precomputed numpy
-   boolean mask per DFA state: legality of ``accumulated + token`` only
-   depends on the DFA state reached after ``accumulated``, so each state's
-   mask is built once over the whole vocabulary at startup.
-3. Masks every other logit to ``-inf`` (numerically ``-1e30``).
-4. Takes the highest-scoring legal token, appends it, and loops.
+1. Chiede al modello i logit del prossimo token.
+2. Calcola l'insieme di id dei token il cui testo letterale mantiene
+   l'output accumulato su un percorso ancora legale secondo la grammatica attiva
+   (scelta del nome della funzione / numero JSON / stringa JSON / letterale booleano).
+   Per le grammatiche di stringa e numero questo insieme è una maschera booleana
+   numpy precalcolata per stato DFA: la legalità di ``accumulated + token`` dipende
+   solo dallo stato DFA raggiunto dopo ``accumulated``, quindi la maschera di ogni
+   stato viene costruita una volta sull'intero vocabolario all'avvio.
+3. Maschera tutti gli altri logit a ``-inf`` (numericamente ``-1e30``).
+4. Prende il token legale con punteggio più alto, lo aggiunge e ripete.
 
-The grammar is split into small DFAs, one per state of interest; only the
-*values* the LLM is responsible for are generated, while the structural
-JSON scaffolding is injected verbatim.
+La grammatica è divisa in piccoli DFA, uno per stato di interesse; vengono generati
+solo i *valori* di cui l'LLM è responsabile, mentre la struttura JSON viene
+iniettata così com'è.
 
-Termination is guaranteed by construction: near the step budget the string
-grammar only admits tokens that close the value, so every decode either
-completes or raises -- there is no heuristic recovery path.
+La terminazione è garantita per costruzione: vicino al limite di passi, la grammatica
+delle stringhe ammette solo token che chiudono il valore, quindi ogni decode o
+completa o genera un'eccezione -- non esiste alcun percorso di recupero euristico.
 """
 
 from __future__ import annotations
@@ -43,15 +43,15 @@ _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _DIGITS = frozenset("0123456789")
 _SIMPLE_ESCAPES = frozenset('"\\/bfnrt')
 
-# Once a string value has been generated for this many steps short of the
-# budget, the decoder only allows tokens that close the string.
+# Quando un valore di stringa è stato generato per questo numero di passi
+# prima della fine del budget, il decoder permette solo i token che chiudono la stringa.
 _STRING_CLOSE_WINDOW: int = 8
 
 
 def _argmax_masked(
     logits: list[float], valid_ids: Iterable[int]
 ) -> int | None:
-    """Return the id in ``valid_ids`` with the highest logit, or None."""
+    """Restituisce l'id in ``valid_ids`` con il logit più alto, o None."""
     best_id: int | None = None
     best_logit = -math.inf
     for tid in valid_ids:
@@ -63,11 +63,11 @@ def _argmax_masked(
 
 
 def _argmax_masked_np(logits: list[float], mask: BoolMask) -> int | None:
-    """Return the highest-logit token id allowed by ``mask``, or None.
+    """Restituisce l'id del token con logit più alto consentito da ``mask``, o None.
 
-    The logits vector may be longer than the base vocabulary (padded
-    embedding rows); padded ids are never legal, so both arrays are
-    clipped to the shorter length.
+    Il vettore dei logit può essere più lungo del vocabolario base (righe di
+    embedding riempite); gli id di padding non sono mai legali, quindi entrambi
+    gli array vengono troncati alla lunghezza minore.
     """
     arr = np.asarray(logits, dtype=np.float64)
     k = min(arr.shape[0], mask.shape[0])
@@ -78,12 +78,12 @@ def _argmax_masked_np(logits: list[float], mask: BoolMask) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Prompt assembly
+# Costruzione del prompt
 # ---------------------------------------------------------------------------
 
 
 def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
-    """Build the textual prompt that frames the function-calling task."""
+    """Costruisce il prompt testuale che definisce il compito di function calling."""
     lines: list[str] = [
         "You are a function-calling assistant. Pick the single best function "
         "from the catalog below and fill in its arguments based on the "
@@ -104,7 +104,7 @@ def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Function-name selection (constrained to the catalog)
+# Selezione del nome della funzione (vincolata al catalogo)
 # ---------------------------------------------------------------------------
 
 
@@ -115,12 +115,12 @@ def choose_function_name(
     *,
     max_steps: int = 32,
 ) -> tuple[str, list[int]]:
-    """Decode exactly one of ``function_names`` by masking everything else.
+    """Decodifica esattamente uno tra ``function_names`` mascherando tutto il resto.
 
-    When the accumulated text is both a complete catalog name and a strict
-    prefix of a longer one (e.g. ``fn_add`` vs ``fn_add_numbers``), the
-    model's own logits arbitrate: the closing-quote token competes against
-    the best continuation token.
+    Quando il testo accumulato è sia un nome completo del catalogo che un prefisso
+    stretto di uno più lungo (es. ``fn_add`` vs ``fn_add_numbers``), sono i logit
+    del modello a decidere: il token di chiusura virgoletta compete contro il token
+    di continuazione migliore.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -170,7 +170,7 @@ def choose_function_name(
 
 
 # ---------------------------------------------------------------------------
-# JSON number grammar
+# Grammatica dei numeri JSON
 # ---------------------------------------------------------------------------
 
 
@@ -184,12 +184,12 @@ def _step_number(
     *,
     allow_fraction: bool = True,
 ) -> str | None:
-    """Advance the ``number<terminator>`` DFA from ``state`` over ``text``.
+    """Avanza il DFA ``number<terminator>`` da ``state`` su ``text``.
 
-    Returns the end state (``"done"`` once the terminator is consumed)
-    or None when the text is illegal from that state. With
-    ``allow_fraction=False`` the decimal point is rejected, so integer
-    parameters can never silently truncate a fractional decode.
+    Restituisce lo stato finale (``"done"`` dopo aver consumato il terminatore)
+    o None quando il testo è illegale da quello stato. Con
+    ``allow_fraction=False`` il punto decimale viene rifiutato, quindi i parametri
+    interi non possono mai troncare silenziosamente una decodifica frazionaria.
     """
     for ch in text:
         if state == "done":
@@ -238,11 +238,11 @@ def generate_number(
     allow_fraction: bool = True,
     max_steps: int = 24,
 ) -> tuple[str, list[int]]:
-    """Decode a JSON number up to (and consuming) ``terminator``.
+    """Decodifica un numero JSON fino al (e consumando) ``terminator``.
 
-    Returns the number text without the terminator. Note: the terminator
-    token has been appended to the returned ids, so callers must not add
-    a separator of their own afterwards.
+    Restituisce il testo del numero senza il terminatore. Nota: il token terminatore
+    è stato aggiunto agli id restituiti, quindi i chiamanti non devono aggiungere
+    un separatore proprio dopo.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -270,8 +270,8 @@ def generate_number(
         ids.append(best)
     if state == "done":
         return accumulated[:-1], ids
-    # The body alone may already be a valid number (budget ran out before
-    # the terminator token was emitted).
+    # Il corpo da solo potrebbe già essere un numero valido (il budget è
+    # terminato prima che il token terminatore venisse emesso).
     body_check = _step_number(
         "start",
         accumulated + terminator,
@@ -287,7 +287,7 @@ def generate_number(
 
 
 # ---------------------------------------------------------------------------
-# JSON string grammar
+# Grammatica delle stringhe JSON
 # ---------------------------------------------------------------------------
 
 
@@ -303,10 +303,10 @@ _UHEX_NEXT = {
 
 
 def _step_string(state: str, text: str) -> str | None:
-    """Advance the JSON-string DFA from ``state`` over ``text``.
+    """Avanza il DFA della stringa JSON da ``state`` su ``text``.
 
-    Returns the end state (``"done"`` once the unescaped closing quote
-    is consumed) or None when the text is illegal from that state.
+    Restituisce lo stato finale (``"done"`` dopo aver consumato la virgoletta
+    di chiusura non escapata) o None quando il testo è illegale da quello stato.
     """
     for ch in text:
         if state == "done":
@@ -333,19 +333,19 @@ def _step_string(state: str, text: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Precomputed per-state vocabulary masks
+# Maschere del vocabolario precalcolate per stato
 # ---------------------------------------------------------------------------
 
 
 class GrammarMasks:
-    """Numpy boolean masks over the vocabulary, one per DFA state.
+    """Maschere booleane numpy sul vocabolario, una per stato DFA.
 
-    Because the grammars are DFAs, the legality of ``accumulated +
-    token_text`` depends only on the state reached after ``accumulated``
-    (``step(step(s0, a), b) == step(s0, a + b)``). Each state therefore
-    classifies every vocabulary token once, up front; a decode step is
-    then a dict lookup plus a vectorized argmax instead of a Python scan
-    over the whole vocabulary.
+    Poiché le grammatiche sono DFAs, la legalità di ``accumulated +
+    token_text`` dipende solo dallo stato raggiunto dopo ``accumulated``
+    (``step(step(s0, a), b) == step(s0, a + b)``). Ogni stato classifica
+    quindi ogni token del vocabolario una volta, in anticipo; un passo di decode
+    diventa così una lookup su dizionario più un argmax vettorizzato invece di
+    una scansione Python sull'intero vocabolario.
     """
 
     def __init__(self, llm: TokenizedLLM) -> None:
@@ -368,14 +368,14 @@ class GrammarMasks:
                 self.string_valid[state][tid] = True
                 if end == "done":
                     self.string_closing[state][tid] = True
-        # Number masks are built lazily: only the terminators actually
-        # used ("," and "}") ever get a table.
+        # Le maschere per i numeri vengono costruite con pigrizia: solo i terminatori
+        # effettivamente usati ("," e "}") ricevono una tabella.
         self._number: dict[tuple[str, bool], dict[str, BoolMask]] = {}
 
     def number(
         self, terminator: str, allow_fraction: bool
     ) -> dict[str, BoolMask]:
-        """Return (building on first use) the masks for a number grammar."""
+        """Restituisce (costruendo al primo utilizzo) le maschere per una grammatica di numero."""
         key = (terminator, allow_fraction)
         masks = self._number.get(key)
         if masks is None:
@@ -404,7 +404,7 @@ _MASK_CACHE: weakref.WeakKeyDictionary[TokenizedLLM, GrammarMasks] = (
 
 
 def _grammar_masks(llm: TokenizedLLM) -> GrammarMasks:
-    """Return the mask tables for ``llm``, building them on first use."""
+    """Restituisce le tabelle di maschere per ``llm``, costruendole al primo utilizzo."""
     masks = _MASK_CACHE.get(llm)
     if masks is None:
         masks = GrammarMasks(llm)
@@ -413,13 +413,13 @@ def _grammar_masks(llm: TokenizedLLM) -> GrammarMasks:
 
 
 def _trailing_repetition(text: str) -> tuple[int, int] | None:
-    """Detect a repeated trailing segment (degenerate generation loop).
+    """Rileva un segmento finale ripetuto (loop di generazione degenere).
 
-    Returns ``(period, repetitions)`` when the text ends with the same
-    segment repeated enough times to indicate a loop, otherwise None.
-    Thresholds: 5 repetitions for 1-2 char segments (so legitimate short
-    runs like ``"aaa"`` survive), 3 for segments up to 8 chars, 2 for
-    segments up to 24 chars (long alternation cycles such as
+    Restituisce ``(periodo, ripetizioni)`` quando il testo termina con lo stesso
+    segmento ripetuto abbastanza volte da indicare un loop, altrimenti None.
+    Soglie: 5 ripetizioni per segmenti di 1-2 caratteri (così le sequenze brevi
+    legittime come ``"aaa"`` sopravvivono), 3 per segmenti fino a 8 caratteri,
+    2 per segmenti fino a 24 caratteri (cicli lunghi di alternanza come
     ``a|e|i|o|u|A|E|I|O|U|``).
     """
     n = len(text)
@@ -445,16 +445,15 @@ def generate_string(
     *,
     max_steps: int = 64,
 ) -> tuple[str, list[int]]:
-    """Decode a JSON string body (without quotes) one token at a time.
+    """Decodifica il corpo di una stringa JSON (senza virgolette) un token alla volta.
 
-    Within the last ``_STRING_CLOSE_WINDOW`` steps of the budget only
-    tokens that complete the string remain legal, which forces
-    termination instead of relying on post-hoc recovery heuristics.
+    Negli ultimi ``_STRING_CLOSE_WINDOW`` passi del budget, solo i token che
+    completano la stringa rimangono legali, il che forza la terminazione invece
+    di affidarsi a euristiche di recupero post-hoc.
 
-    If the output degenerates into a repeating loop, the duplicate
-    trailing segments are rolled back (their tokens are popped from the
-    context, keeping a single instance) and the string is force-closed
-    from there.
+    Se l'output degenera in un loop ripetitivo, i segmenti finali duplicati vengono
+    annullati (i loro token vengono rimossi dal contesto, mantenendone uno solo) e
+    la stringa viene chiusa forzatamente da quel punto.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -473,8 +472,8 @@ def generate_string(
             while removed < excess and len(ids) > len(input_ids):
                 removed += len(id_text[ids.pop()])
             accumulated = accumulated[:len(accumulated) - removed]
-            # Rollback may have severed an escape sequence; re-derive
-            # the state from scratch.
+            # Il rollback potrebbe aver interrotto una sequenza di escape; si
+            # ricalcola lo stato da zero.
             recomputed = _step_string("body", accumulated)
             if recomputed is None:
                 break
@@ -489,10 +488,10 @@ def generate_string(
             if closing_mask.any():
                 mask = closing_mask
                 if closing_only:
-                    # After a degenerate loop, close with the bare quote
-                    # when available instead of letting the model pad
-                    # the value with a decorative closing token
-                    # (e.g. '..."').
+                    # Dopo un loop degenere, si chiude con la virgoletta nuda
+                    # quando disponibile, invece di lasciare che il modello
+                    # riempia il valore con un token decorativo di chiusura
+                    # (es. '..."').
                     bare = closing_mask & masks.bare_quote
                     if bare.any():
                         mask = bare
@@ -518,7 +517,7 @@ def generate_string(
 
 
 def _decode_json_string_body(raw: str) -> str:
-    """Resolve JSON escape sequences in an already-validated body."""
+    """Risolve le sequenze di escape JSON in un corpo già validato."""
     out: list[str] = []
     i = 0
     n = len(raw)
@@ -550,7 +549,7 @@ def _decode_json_string_body(raw: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Literal choice (booleans)
+# Scelta del letterale (booleani)
 # ---------------------------------------------------------------------------
 
 
@@ -561,10 +560,10 @@ def _choose_literal(
     *,
     max_steps: int = 8,
 ) -> tuple[str, list[int]]:
-    """Decode exactly one of ``choices`` by masking everything else.
+    """Decodifica esattamente uno tra ``choices`` mascherando tutto il resto.
 
-    No terminator is consumed: the returned ids end with the literal
-    itself, so the caller controls the following separator.
+    Nessun terminatore viene consumato: gli id restituiti terminano con il letterale
+    stesso, quindi il chiamante controlla il separatore successivo.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -594,12 +593,12 @@ def _choose_literal(
 
 
 # ---------------------------------------------------------------------------
-# End-to-end orchestration for a single prompt
+# Orchestrazione end-to-end per un singolo prompt
 # ---------------------------------------------------------------------------
 
 
 class _ValueResult(BaseModel):
-    """Generated parameter value together with the updated context ids."""
+    """Valore del parametro generato insieme agli id di contesto aggiornati."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -608,17 +607,17 @@ class _ValueResult(BaseModel):
 
 
 def _coerce_number(text: str, expected: str) -> float | int:
-    """Convert decoded numeric text into the matching Python scalar."""
+    """Converte il testo numerico decodificato nello scalare Python corrispondente."""
     if expected == "integer":
         return int(text)
     return float(text)
 
 
 def _default_value(expected: str) -> float | int | str | bool:
-    """Return a type-correct neutral value for a parameter type.
+    """Restituisce un valore neutro corretto per tipo di parametro.
 
-    Used only as a last-resort fallback so that the output always stays
-    schema-valid even if a single value decode fails.
+    Usato solo come ultima risorsa in caso di fallback, in modo che l'output
+    rimanga sempre valido per lo schema anche se un singolo decode di valore fallisce.
     """
     defaults: dict[str, float | int | str | bool] = {
         "number": 0.0,
@@ -636,7 +635,7 @@ def call_for_prompt(
     *,
     debug: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """Turn a single natural-language prompt into ``(name, parameters)``."""
+    """Trasforma un singolo prompt in linguaggio naturale in ``(name, parameters)``."""
     function_names = [fn.name for fn in functions]
     fn_by_name = {fn.name: fn for fn in functions}
 
@@ -650,7 +649,7 @@ def call_for_prompt(
     if debug:
         print(f"[debug]   -> name={chosen}")
 
-    # Inject the structural JSON opening once the name is known.
+    # Si inietta l'apertura JSON strutturale una volta noto il nome.
     ids = ids + llm.encode('", "parameters": {')
 
     parameters: dict[str, Any] = {}
@@ -661,15 +660,15 @@ def call_for_prompt(
         try:
             value = _generate_value(llm, ids, spec, is_last=is_last)
         except RuntimeError:
-            # Keep the output schema-valid: fall back to a neutral value
-            # for this parameter only.
+            # Mantiene l'output valido per lo schema: fallback a un valore neutro
+            # solo per questo parametro.
             value = _ValueResult(
                 python_value=_default_value(spec.type), ids=ids
             )
         parameters[param_name] = value.python_value
         ids = value.ids
         if not is_last and spec.type in ("string", "boolean"):
-            # number/integer decoding already consumed the "," terminator.
+            # il decoding di number/integer ha già consumato il terminatore ",".
             ids = ids + llm.encode(", ")
         if debug:
             print(f"[debug]   -> {param_name}={value.python_value!r}")
@@ -683,7 +682,7 @@ def _generate_value(
     *,
     is_last: bool,
 ) -> _ValueResult:
-    """Decode a single parameter value according to its declared type."""
+    """Decodifica un singolo valore di parametro in base al suo tipo dichiarato."""
     terminator = "}" if is_last else ","
     if spec.type in ("number", "integer"):
         text, new_ids = generate_number(

@@ -1,8 +1,8 @@
-"""Wrapper around ``Small_LLM_Model`` exposing token-level utilities.
+"""Wrapper attorno a ``Small_LLM_Model`` che espone utility a livello di token.
 
-The wrapper keeps the project free of direct ``torch`` / ``transformers``
-dependencies -- every call goes through the SDK's public methods and works
-on plain Python lists.
+Il wrapper mantiene il progetto libero da dipendenze dirette ``torch`` / ``transformers``
+-- ogni chiamata passa attraverso i metodi pubblici dell'SDK e lavora
+su liste Python semplici.
 """
 
 from __future__ import annotations
@@ -16,22 +16,22 @@ try:
 except ImportError:  # installed flat as the ``llm_sdk`` package
     from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined,no-redef]
 
-# Anything below 0x20 (other than tab) is unsafe inside a JSON string and
-# is also a strong indicator that a token represents control/special bytes.
+# Tutto ciò che è sotto 0x20 (tranne il tab) non è sicuro all'interno di una stringa JSON e
+# indica anche fortemente che un token rappresenta byte di controllo/speciali.
 _FORBIDDEN_CHAR_ORDS = frozenset(range(0, 0x20)) - {0x09}
 
 
 def _has_forbidden_chars(text: str) -> bool:
-    """Return True if the text contains a non-tab control character."""
+    """Restituisce True se il testo contiene un carattere di controllo diverso dal tab."""
     return any(ord(c) in _FORBIDDEN_CHAR_ORDS for c in text)
 
 
 def _bytes_to_unicode_map() -> dict[int, str]:
-    """Rebuild the GPT-2 / Qwen byte-to-unicode mapping.
+    """Ricrea la mappatura byte-to-unicode di GPT-2 / Qwen.
 
-    Identical to the official mapping shipped with the GPT-2 BPE
-    tokenizer; reimplemented locally so no third-party tokenizer library
-    is imported at runtime.
+    Identica alla mappatura ufficiale fornita con il tokenizer BPE di GPT-2;
+    reimplementata localmente in modo che nessuna libreria tokenizer di terze parti
+    venga importata a runtime.
     """
     bs: list[int] = (
         list(range(ord("!"), ord("~") + 1))
@@ -49,10 +49,10 @@ def _bytes_to_unicode_map() -> dict[int, str]:
 
 
 def _decode_vocab_token(token_str: str, u2b: dict[str, int]) -> str:
-    """Translate a vocab.json token string into the literal text it encodes.
+    """Traduce una stringa token di vocab.json nel testo letterale che codifica.
 
-    Tokens that cannot be mapped (special tokens, partial UTF-8 sequences)
-    return an empty string so the masking logic never selects them.
+    I token che non possono essere mappati (token speciali, sequenze UTF-8 parziali)
+    restituiscono una stringa vuota in modo che la logica di masking non li selezioni mai.
     """
     try:
         byte_values = bytes(u2b[c] for c in token_str)
@@ -65,10 +65,10 @@ def _decode_vocab_token(token_str: str, u2b: dict[str, int]) -> str:
 
 
 class TokenizedLLM:
-    """Thin facade over :class:`Small_LLM_Model` with vocab utilities."""
+    """Facade leggera su :class:`Small_LLM_Model` con utility per il vocabolario."""
 
     def __init__(self, model_name: str = "Qwen/Qwen3-0.6B") -> None:
-        """Load the model and build the ``id -> literal text`` table."""
+        """Carica il modello e costruisce la tabella ``id -> testo letterale``."""
         self._model = Small_LLM_Model(model_name=model_name)
         self._id_to_text: dict[int, str] = {}
         self._clean_vocab: list[tuple[int, str]] = []
@@ -76,7 +76,7 @@ class TokenizedLLM:
         self._load_vocab()
 
     def _load_vocab(self) -> None:
-        """Read vocab.json and precompute the decoder-facing tables."""
+        """Legge vocab.json e precalcola le tabelle per il decoder."""
         vocab_path = Path(self._model.get_path_to_vocab_file())
         with vocab_path.open(encoding="utf-8") as handle:
             raw_vocab: dict[str, int] = json.load(handle)
@@ -89,9 +89,9 @@ class TokenizedLLM:
             if token_id > max_id:
                 max_id = token_id
         self._vocab_size = max_id + 1
-        # Precomputed once: tokens with usable literal text. The decoder
-        # iterates this list at every step instead of re-filtering the
-        # full vocabulary.
+        # Precalcolata una volta: token con testo letterale utilizzabile. Il decoder
+        # itera questa lista ad ogni passo invece di rifiltrare l'intero
+        # vocabolario.
         self._clean_vocab = [
             (tid, text)
             for tid, text in self._id_to_text.items()
@@ -100,29 +100,29 @@ class TokenizedLLM:
 
     @property
     def id_to_text(self) -> dict[int, str]:
-        """Mapping of every base-vocab token id to its literal text."""
+        """Mappatura di ogni id del token del vocabolario base al suo testo letterale."""
         return self._id_to_text
 
     @property
     def clean_vocab(self) -> list[tuple[int, str]]:
-        """Pre-filtered ``(id, text)`` pairs safe for constrained decoding."""
+        """Coppie ``(id, text)`` prefiltrate sicure per il decoding vincolato."""
         return self._clean_vocab
 
     @property
     def vocab_size(self) -> int:
-        """Number of base-vocab tokens (added/special tokens excluded)."""
+        """Numero di token del vocabolario base (token aggiunti/speciali esclusi)."""
         return self._vocab_size
 
     def encode(self, text: str) -> list[int]:
-        """Encode a string into a flat list of token ids."""
+        """Codifica una stringa in una lista piatta di id dei token."""
         tensor = self._model.encode(text)
         nested = tensor.tolist()
         return [int(x) for x in nested[0]]
 
     def decode(self, ids: Sequence[int]) -> str:
-        """Decode a sequence of token ids back to text via the SDK."""
+        """Decodifica una sequenza di id dei token tornando al testo tramite l'SDK."""
         return self._model.decode(list(ids))
 
     def get_logits(self, input_ids: Sequence[int]) -> list[float]:
-        """Return next-token logits for ``input_ids``."""
+        """Restituisce i logit del prossimo token per ``input_ids``."""
         return self._model.get_logits_from_input_ids(list(input_ids))

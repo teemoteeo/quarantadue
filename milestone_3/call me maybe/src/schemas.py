@@ -1,4 +1,4 @@
-"""Pydantic schemas describing the I/O contracts for function calling."""
+"""Schemi Pydantic che descrivono i contratti I/O per il function calling."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ JsonScalarType = Literal["number", "integer", "string", "boolean"]
 
 
 class ParameterSpec(BaseModel):
-    """Schema entry describing a single function parameter."""
+    """Voce dello schema che descrive un singolo parametro di funzione."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -18,7 +18,7 @@ class ParameterSpec(BaseModel):
 
 
 class ReturnSpec(BaseModel):
-    """Schema entry describing the return value of a function."""
+    """Voce dello schema che descrive il valore di ritorno di una funzione."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -26,7 +26,7 @@ class ReturnSpec(BaseModel):
 
 
 class FunctionDefinition(BaseModel):
-    """A callable function exposed to the language model."""
+    """Funzione richiamabile esposta al modello linguistico."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -37,7 +37,7 @@ class FunctionDefinition(BaseModel):
 
 
 class TestPrompt(BaseModel):
-    """A natural-language prompt to turn into a function call."""
+    """Un prompt in linguaggio naturale da trasformare in una chiamata di funzione."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -45,7 +45,7 @@ class TestPrompt(BaseModel):
 
 
 class FunctionCallResult(BaseModel):
-    """The result of resolving a prompt into a concrete function call."""
+    """Il risultato della risoluzione di un prompt in una chiamata di funzione concreta."""
 
     model_config = ConfigDict(extra="forbid")
 
