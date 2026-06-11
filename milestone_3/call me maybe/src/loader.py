@@ -1,4 +1,4 @@
-"""Utility per I/O che caricano input e scrivono risultati in JSON."""
+"""Helper di I/O per caricare gli input e scrivere i risultati come JSON."""
 
 from __future__ import annotations
 
@@ -17,11 +17,11 @@ _TESTS_ADAPTER: TypeAdapter[list[TestPrompt]] = TypeAdapter(list[TestPrompt])
 
 
 class LoaderError(RuntimeError):
-    """Generata quando un file di input è mancante o malformato."""
+    """Sollevata quando un file di input manca o è malformato."""
 
 
 def _read_json(path: Path) -> object:
-    """Legge e analizza un file JSON, sollevando LoaderError in caso di errore."""
+    """Legge e parsa un file JSON, sollevando LoaderError in caso di errore."""
     try:
         with path.open(encoding="utf-8") as handle:
             return json.load(handle)
@@ -32,7 +32,7 @@ def _read_json(path: Path) -> object:
 
 
 def load_functions(path: Path) -> list[FunctionDefinition]:
-    """Carica e valida il file delle definizioni di funzione."""
+    """Carica e valida il file delle definizioni delle funzioni."""
     payload = _read_json(path)
     try:
         return _FUNCTIONS_ADAPTER.validate_python(payload)
@@ -43,7 +43,7 @@ def load_functions(path: Path) -> list[FunctionDefinition]:
 
 
 def load_tests(path: Path) -> list[TestPrompt]:
-    """Carica e valida il file dei prompt di test per function calling."""
+    """Carica e valida il file dei prompt di test per il function-calling."""
     payload = _read_json(path)
     try:
         return _TESTS_ADAPTER.validate_python(payload)
@@ -54,7 +54,7 @@ def load_tests(path: Path) -> list[TestPrompt]:
 
 
 def save_results(path: Path, results: Iterable[FunctionCallResult]) -> None:
-    """Scrive i risultati in JSON, creando le directory genitore se necessario."""
+    """Scrive i risultati come JSON, creando le directory padre se necessario."""
     path.parent.mkdir(parents=True, exist_ok=True)
     data = [r.model_dump() for r in results]
     with path.open("w", encoding="utf-8") as handle:

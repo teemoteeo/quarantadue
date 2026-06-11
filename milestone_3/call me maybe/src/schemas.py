@@ -1,4 +1,4 @@
-"""Schemi Pydantic che descrivono i contratti I/O per il function calling."""
+"""Schema Pydantic che descrivono i contratti I/O per il function calling."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class ReturnSpec(BaseModel):
 
 
 class FunctionDefinition(BaseModel):
-    """Funzione richiamabile esposta al modello linguistico."""
+    """Una funzione chiamabile esposta al language model."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -37,7 +37,7 @@ class FunctionDefinition(BaseModel):
 
 
 class TestPrompt(BaseModel):
-    """Un prompt in linguaggio naturale da trasformare in una chiamata di funzione."""
+    """Un prompt in linguaggio naturale da trasformare in una chiamata a funzione."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -45,7 +45,7 @@ class TestPrompt(BaseModel):
 
 
 class FunctionCallResult(BaseModel):
-    """Il risultato della risoluzione di un prompt in una chiamata di funzione concreta."""
+    """Il risultato della risoluzione di un prompt in una chiamata a funzione concreta."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -1,4 +1,4 @@
-"""Punto di ingresso CLI per ``call me maybe``, il chiamatore di funzioni con decoding vincolato."""
+"""Punto d'ingresso CLI per ``call me maybe``, il nostro function caller vincolato."""
 
 from __future__ import annotations
 
@@ -6,11 +6,12 @@ import argparse
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from .model import TokenizedLLM
-    from .schemas import FunctionDefinition
+from .decoder import call_for_prompt, default_value
+from .loader import LoaderError, load_functions, load_tests, save_results
+from .model import TokenizedLLM
+from .schemas import FunctionCallResult, FunctionDefinition
 
 DEFAULT_FUNCTIONS = Path("data/input/functions_definition.json")
 DEFAULT_INPUT = Path("data/input/function_calling_tests.json")
@@ -18,7 +19,7 @@ DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Analizza gli argomenti da riga di comando (tutti i percorsi hanno valori predefiniti)."""
+    """Parsa gli argomenti dalla riga di comando (i path hanno tutti dei default dal subject)."""
     parser = argparse.ArgumentParser(
         prog="call-me-maybe",
         description=(
@@ -58,44 +59,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _resolve_call(
-    llm: TokenizedLLM,
-    functions: list[FunctionDefinition],
-    prompt: str,
-    *,
-    debug: bool,
-) -> tuple[str, dict[str, Any]]:
-    """Risolve un prompt, tentando di nuovo prima di arrendersi."""
-    from .decoder import call_for_prompt
-    last_error: Exception | None = None
-    for attempt in range(2):
-        try:
-            return call_for_prompt(llm, functions, prompt, debug=debug)
-        except Exception as exc:
-            last_error = exc
-            if debug:
-                print(
-                    f"[debug] tentativo {attempt + 1} fallito: {exc}",
-                    file=sys.stderr,
-                )
-    raise RuntimeError(f"decoding failed after retry: {last_error}")
-
-
 def main(argv: list[str] | None = None) -> int:
-    """Esegue la pipeline; restituisce il codice di uscita del processo."""
+    """Esegue la pipeline e ritorna il codice di uscita del processo."""
     try:
-        args = _parse_args(argv)
-        return _run(args)
+        return _run(_parse_args(argv))
     except KeyboardInterrupt:
         print("\nInterrotto dall'utente.", file=sys.stderr)
         return 1
 
 
 def _run(args: argparse.Namespace) -> int:
-    """Logica effettiva della pipeline (avvolta in modo da catturare KeyboardInterrupt)."""
-    from .loader import LoaderError, load_functions, load_tests, save_results
-    from .model import TokenizedLLM
-    from .schemas import FunctionCallResult
+    """Logica della pipeline, isolata così main può catturare KeyboardInterrupt."""
     try:
         functions = load_functions(args.functions_definition)
         tests = load_tests(args.input)
@@ -120,7 +94,9 @@ def _run(args: argparse.Namespace) -> int:
         started = time.perf_counter()
         print(f"[{index}/{len(tests)}] {test.prompt!r}")
         try:
-            name, params = _resolve_call(
+            # La decodifica è greedy e deterministica: ritentare con lo
+            # stesso input riprodurrebbe lo stesso fallimento.
+            name, params = call_for_prompt(
                 llm, functions, test.prompt, debug=args.debug
             )
         except Exception as exc:
@@ -149,20 +125,15 @@ def _run(args: argparse.Namespace) -> int:
 def _fallback_call(
     functions: list[FunctionDefinition],
 ) -> tuple[str, dict[str, Any]]:
-    """Risultato valido per lo schema come ultima risorsa quando il decoding è fallito due volte.
+    """Risultato di emergenza schema-valido quando la decodifica di un prompt fallisce.
 
     Emette la prima funzione del catalogo con argomenti neutri corretti per tipo,
-    in modo che il file di output non contenga mai un nome vuoto o chiavi mancanti.
+    così il file di output non ha mai un nome vuoto o chiavi mancanti.
     """
-    defaults: dict[str, Any] = {
-        "number": 0.0,
-        "integer": 0,
-        "string": "",
-        "boolean": False,
-    }
     fn = functions[0]
     params = {
-        name: defaults[spec.type] for name, spec in fn.parameters.items()
+        name: default_value(spec.type)
+        for name, spec in fn.parameters.items()
     }
     return fn.name, params
 

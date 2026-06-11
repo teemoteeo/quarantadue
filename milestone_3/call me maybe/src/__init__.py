@@ -1,1 +1,1 @@
-"""Pipeline per il function calling con decoding vincolato."""
+"""Pipeline di function-calling con decodifica vincolata."""

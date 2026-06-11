@@ -32,6 +32,12 @@ structural guidance achieves near-perfect reliability from compact models.
 - Constrained decoding via vocabulary-level token masking
 - Support for JSON number, integer, string, and boolean types
 - DFA-based grammar validation for JSON values
+- Cached boolean masks over the vocabulary (per DFA state for numbers and
+  strings, per accumulated prefix for names and literals): each decoding
+  step is a mask lookup plus a vectorized argmax, never a vocabulary scan
+- Forward passes only where the grammar leaves a real choice: once a
+  partial name or literal is unambiguous the remainder is injected
+  verbatim, and steps with a single legal token skip the model call
 - Guaranteed termination: near the step budget, the string grammar only
   admits tokens that close the value (no recovery heuristics needed)
 - Logit-arbitrated selection between catalog names that share a prefix
@@ -97,7 +103,8 @@ The decoder works at token level with a mask-based approach:
 1. **Token-Level Masking**: For every generation step the model produces
    logits for all possible next tokens
 2. **Grammar Validation**: Tokens are validated against a DFA representing
-   the expected grammar
+   the expected grammar; validity is precomputed into cached boolean masks
+   over the vocabulary (one per DFA state or accumulated prefix)
 3. **Invalid-Token Masking**: Tokens that would break the JSON structure or
    violate the schema are masked to `-inf`
 4. **Greedy Selection**: The highest-scoring valid token is selected
@@ -131,8 +138,9 @@ ids into their literal text representation. It is built by:
 4. Keeping only valid UTF-8 text representations
 
 A pre-filtered `clean_vocab` list (text present, no control characters) is
-computed once at load time; the decoder iterates this list at every step
-instead of re-filtering the whole vocabulary.
+computed once at load time; the decoder iterates it only to build the
+boolean masks, so the per-step cost is a mask lookup plus a vectorized
+argmax rather than a scan of the vocabulary.
 
 ## Design Decisions
 
@@ -184,10 +192,15 @@ declared in the project's dependencies only because `uv` applies
 
 ### Speed
 
-- Simple functions: < 1 s per prompt
-- Long string arguments (e.g. regex patterns): bounded by the 64-token
-  budget with forced closure
-- Total time for the 11 provided test cases: about 1-2 minutes on CPU
+The cost of a decode is dominated by the model forward passes (one full
+recomputation of the context per generated token, as the SDK exposes no
+incremental decoding), so runtime scales with the number of value tokens
+the model actually has to choose:
+
+- Simple prompts (numbers, short strings): about 3-7 s per prompt on CPU
+- Long string arguments (e.g. regex patterns): about 15-40 s, bounded by
+  the 64-token budget with forced closure
+- Total time for the 11 provided test cases: about 2 minutes on CPU
 
 ### Reliability
 

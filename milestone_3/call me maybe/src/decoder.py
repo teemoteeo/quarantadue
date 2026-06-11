@@ -1,36 +1,36 @@
-"""Primitive per il decoding vincolato che estraggono chiamate di funzioni strutturate.
+"""Primitive di decodifica vincolata che estraggono chiamate a funzione strutturate.
 
-Il decoder opera a livello di token. Ad ogni passo di generazione:
+Il decoder lavora a livello di token. A ogni passo di generazione fa:
 
 1. Chiede al modello i logit del prossimo token.
-2. Calcola l'insieme di id dei token il cui testo letterale mantiene
-   l'output accumulato su un percorso ancora legale secondo la grammatica attiva
-   (scelta del nome della funzione / numero JSON / stringa JSON / letterale booleano).
-   Per le grammatiche di stringa e numero questo insieme è una maschera booleana
-   numpy precalcolata per stato DFA: la legalità di ``accumulated + token`` dipende
-   solo dallo stato DFA raggiunto dopo ``accumulated``, quindi la maschera di ogni
-   stato viene costruita una volta sull'intero vocabolario all'avvio.
-3. Maschera tutti gli altri logit a ``-inf`` (numericamente ``-1e30``).
-4. Prende il token legale con punteggio più alto, lo aggiunge e ripete.
+2. Calcola l'insieme degli id di token il cui testo letterale mantiene l'output
+   accumulato su un percorso ancora valido secondo la grammatica attiva
+   (scelta del nome funzione / numero JSON / stringa JSON / letterale booleano).
+   Questo insieme è sempre una maschera booleana numpy cached: per stringhe e
+   numeri la validità di ``accumulato + token`` dipende solo dallo stato DFA
+   raggiunto dopo ``accumulato``, quindi la maschera di ogni stato viene
+   costruita una volta sola su tutto il vocabolario all'avvio; per nomi funzione
+   e letterali booleani dipende solo dal prefisso accumulato, quindi le maschere
+   vengono costruite lazy per prefisso e riusate su tutti i prompt.
+3. Mette tutti gli altri logit a ``-inf`` (numericamente ``-1e30``).
+4. Prende il token legale col punteggio più alto, lo appende, e riparte.
 
 La grammatica è divisa in piccoli DFA, uno per stato di interesse; vengono generati
-solo i *valori* di cui l'LLM è responsabile, mentre la struttura JSON viene
-iniettata così com'è.
+solo i *valori* di cui è responsabile il LLM, mentre l'impalcatura strutturale JSON
+viene iniettata verbatim.
 
-La terminazione è garantita per costruzione: vicino al limite di passi, la grammatica
-delle stringhe ammette solo token che chiudono il valore, quindi ogni decode o
-completa o genera un'eccezione -- non esiste alcun percorso di recupero euristico.
+La terminazione è garantita per costruzione: vicino al budget di passi la grammatica
+delle stringhe ammette solo token che chiudono il valore, quindi ogni decodifica o
+si completa o solleva un'eccezione -- non c'è nessun percorso di recupero euristico.
 """
 
 from __future__ import annotations
 
-import math
 import weakref
-from typing import Any, Iterable
+from typing import Any, NamedTuple
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import BaseModel, ConfigDict
 
 from .model import TokenizedLLM
 from .schemas import FunctionDefinition, ParameterSpec
@@ -42,32 +42,37 @@ BoolMask = npt.NDArray[np.bool_]
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _DIGITS = frozenset("0123456789")
 _SIMPLE_ESCAPES = frozenset('"\\/bfnrt')
+_ESCAPE_MAP = {
+    '"': '"',
+    "\\": "\\",
+    "/": "/",
+    "b": "\b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+}
 
-# Quando un valore di stringa è stato generato per questo numero di passi
-# prima della fine del budget, il decoder permette solo i token che chiudono la stringa.
+# Valori neutri corretti per tipo, usati come fallback di emergenza così
+# l'output rimane sempre schema-valido.
+_TYPE_DEFAULTS: dict[str, float | int | str | bool] = {
+    "number": 0.0,
+    "integer": 0,
+    "string": "",
+    "boolean": False,
+}
+
+# Quando una stringa è stata generata per questo numero di passi prima del budget,
+# il decoder ammette solo token che chiudono la stringa.
 _STRING_CLOSE_WINDOW: int = 8
 
 
-def _argmax_masked(
-    logits: list[float], valid_ids: Iterable[int]
-) -> int | None:
-    """Restituisce l'id in ``valid_ids`` con il logit più alto, o None."""
-    best_id: int | None = None
-    best_logit = -math.inf
-    for tid in valid_ids:
-        score = logits[tid]
-        if score > best_logit:
-            best_logit = score
-            best_id = tid
-    return best_id
-
-
 def _argmax_masked_np(logits: list[float], mask: BoolMask) -> int | None:
-    """Restituisce l'id del token con logit più alto consentito da ``mask``, o None.
+    """Ritorna l'id del token col logit più alto consentito da ``mask``, o None.
 
-    Il vettore dei logit può essere più lungo del vocabolario base (righe di
-    embedding riempite); gli id di padding non sono mai legali, quindi entrambi
-    gli array vengono troncati alla lunghezza minore.
+    Il vettore dei logit può essere più lungo del vocabolario base (righe di embedding
+    con padding); gli id con padding non sono mai validi, quindi entrambi gli array
+    vengono troncati alla lunghezza minore.
     """
     arr = np.asarray(logits, dtype=np.float64)
     k = min(arr.shape[0], mask.shape[0])
@@ -78,12 +83,12 @@ def _argmax_masked_np(logits: list[float], mask: BoolMask) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Costruzione del prompt
+# Assemblaggio del prompt
 # ---------------------------------------------------------------------------
 
 
 def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
-    """Costruisce il prompt testuale che definisce il compito di function calling."""
+    """Costruisce il prompt testuale che imposta il task di function-calling."""
     lines: list[str] = [
         "You are a function-calling assistant. Pick the single best function "
         "from the catalog below and fill in its arguments based on the "
@@ -104,7 +109,7 @@ def build_context(functions: list[FunctionDefinition], prompt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Selezione del nome della funzione (vincolata al catalogo)
+# Selezione del nome funzione (vincolata al catalogo)
 # ---------------------------------------------------------------------------
 
 
@@ -115,36 +120,42 @@ def choose_function_name(
     *,
     max_steps: int = 32,
 ) -> tuple[str, list[int]]:
-    """Decodifica esattamente uno tra ``function_names`` mascherando tutto il resto.
+    """Decodifica esattamente uno dei ``function_names`` mascherando tutto il resto.
 
     Quando il testo accumulato è sia un nome completo del catalogo che un prefisso
     stretto di uno più lungo (es. ``fn_add`` vs ``fn_add_numbers``), sono i logit
-    del modello a decidere: il token di chiusura virgoletta compete contro il token
-    di continuazione migliore.
+    del modello ad arbitrare: il token della virgoletta di chiusura compete contro
+    il miglior token di continuazione.
+
+    Il modello viene interrogato solo finché il prefisso è ambiguo: appena
+    un solo nome del catalogo è compatibile, il resto viene iniettato verbatim.
     """
     accumulated = ""
     ids = list(input_ids)
     id_text = llm.id_to_text
-    quote_ids = [tid for tid, text in llm.clean_vocab if text == '"']
+    masks = _grammar_masks(llm)
+    names = tuple(function_names)
     for _ in range(max_steps):
+        matching = [
+            name for name in function_names if name.startswith(accumulated)
+        ]
         is_complete = accumulated in function_names
-        has_longer = any(
-            name != accumulated and name.startswith(accumulated)
-            for name in function_names
-        )
-        if is_complete and not has_longer:
+        if is_complete and len(matching) == 1:
             return accumulated, ids
-        valid: list[int] = []
-        for tid, text in llm.clean_vocab:
-            candidate = accumulated + text
-            for target in function_names:
-                if target.startswith(candidate):
-                    valid.append(tid)
-                    break
+        if not matching:
+            break
+        if not is_complete and len(matching) == 1:
+            # Prefisso univoco: il resto del nome è forzato dalla grammatica,
+            # quindi viene iniettato verbatim senza interrogare il modello
+            # token per token.
+            target = matching[0]
+            ids.extend(llm.encode_cached(target[len(accumulated):]))
+            return target, ids
+        mask = masks.prefix_mask(accumulated, names)
         if is_complete:
             logits = llm.get_logits(ids)
-            best_cont = _argmax_masked(logits, valid) if valid else None
-            best_stop = _argmax_masked(logits, quote_ids)
+            best_cont = _argmax_masked_np(logits, mask)
+            best_stop = _argmax_masked_np(logits, masks.bare_quote)
             if best_cont is None or (
                 best_stop is not None
                 and logits[best_stop] >= logits[best_cont]
@@ -153,10 +164,10 @@ def choose_function_name(
             accumulated += id_text[best_cont]
             ids.append(best_cont)
             continue
-        if not valid:
+        if not mask.any():
             break
         logits = llm.get_logits(ids)
-        best = _argmax_masked(logits, valid)
+        best = _argmax_masked_np(logits, mask)
         if best is None:
             break
         accumulated += id_text[best]
@@ -184,11 +195,11 @@ def _step_number(
     *,
     allow_fraction: bool = True,
 ) -> str | None:
-    """Avanza il DFA ``number<terminator>`` da ``state`` su ``text``.
+    """Avanza il DFA ``number<terminator>`` dallo ``state`` corrente su ``text``.
 
-    Restituisce lo stato finale (``"done"`` dopo aver consumato il terminatore)
-    o None quando il testo è illegale da quello stato. Con
-    ``allow_fraction=False`` il punto decimale viene rifiutato, quindi i parametri
+    Ritorna lo stato finale (``"done"`` una volta consumato il terminatore)
+    o None se il testo non è valido da quello stato. Con
+    ``allow_fraction=False`` il punto decimale viene rifiutato, così i parametri
     interi non possono mai troncare silenziosamente una decodifica frazionaria.
     """
     for ch in text:
@@ -238,11 +249,11 @@ def generate_number(
     allow_fraction: bool = True,
     max_steps: int = 24,
 ) -> tuple[str, list[int]]:
-    """Decodifica un numero JSON fino al (e consumando) ``terminator``.
+    """Decodifica un numero JSON fino a (e consumando) ``terminator``.
 
-    Restituisce il testo del numero senza il terminatore. Nota: il token terminatore
-    è stato aggiunto agli id restituiti, quindi i chiamanti non devono aggiungere
-    un separatore proprio dopo.
+    Ritorna il testo del numero senza il terminatore. Nota: il token terminatore
+    è già stato aggiunto agli id restituiti, quindi chi chiama non deve aggiungere
+    un separatore dopo.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -255,23 +266,28 @@ def generate_number(
         mask = masks[state]
         if not mask.any():
             break
-        logits = llm.get_logits(ids)
-        best = _argmax_masked_np(logits, mask)
+        best: int | None
+        if int(mask.sum()) == 1:
+            # Un solo token legale: scelta forzata, niente forward pass.
+            best = int(mask.argmax())
+        else:
+            logits = llm.get_logits(ids)
+            best = _argmax_masked_np(logits, mask)
         if best is None:
             break
         text = id_text[best]
         nxt = _step_number(
             state, text, terminator, allow_fraction=allow_fraction
         )
-        if nxt is None:  # unreachable: token came from the valid mask
+        if nxt is None:  # irraggiungibile: il token viene dalla maschera valida
             break
         state = nxt
         accumulated += text
         ids.append(best)
     if state == "done":
         return accumulated[:-1], ids
-    # Il corpo da solo potrebbe già essere un numero valido (il budget è
-    # terminato prima che il token terminatore venisse emesso).
+    # Il solo body potrebbe già essere un numero valido (budget esaurito prima
+    # che il token terminatore venisse emesso).
     body_check = _step_number(
         "start",
         accumulated + terminator,
@@ -303,10 +319,10 @@ _UHEX_NEXT = {
 
 
 def _step_string(state: str, text: str) -> str | None:
-    """Avanza il DFA della stringa JSON da ``state`` su ``text``.
+    """Avanza il DFA della stringa JSON dallo ``state`` corrente su ``text``.
 
-    Restituisce lo stato finale (``"done"`` dopo aver consumato la virgoletta
-    di chiusura non escapata) o None quando il testo è illegale da quello stato.
+    Ritorna lo stato finale (``"done"`` una volta consumata la virgoletta di chiusura
+    non escapata) o None se il testo non è valido da quello stato.
     """
     for ch in text:
         if state == "done":
@@ -340,12 +356,12 @@ def _step_string(state: str, text: str) -> str | None:
 class GrammarMasks:
     """Maschere booleane numpy sul vocabolario, una per stato DFA.
 
-    Poiché le grammatiche sono DFAs, la legalità di ``accumulated +
-    token_text`` dipende solo dallo stato raggiunto dopo ``accumulated``
-    (``step(step(s0, a), b) == step(s0, a + b)``). Ogni stato classifica
-    quindi ogni token del vocabolario una volta, in anticipo; un passo di decode
-    diventa così una lookup su dizionario più un argmax vettorizzato invece di
-    una scansione Python sull'intero vocabolario.
+    Siccome le grammatiche sono DFA, la validità di ``accumulato + testo_token``
+    dipende solo dallo stato raggiunto dopo ``accumulato``
+    (``step(step(s0, a), b) == step(s0, a + b)``). Ogni stato classifica quindi
+    ogni token del vocabolario una volta sola, all'inizio; un passo di decodifica
+    è poi una lookup nel dict più un argmax vettorizzato invece di uno scan Python
+    su tutto il vocabolario.
     """
 
     def __init__(self, llm: TokenizedLLM) -> None:
@@ -368,14 +384,36 @@ class GrammarMasks:
                 self.string_valid[state][tid] = True
                 if end == "done":
                     self.string_closing[state][tid] = True
-        # Le maschere per i numeri vengono costruite con pigrizia: solo i terminatori
-        # effettivamente usati ("," e "}") ricevono una tabella.
+        # Le maschere dei numeri vengono costruite lazy: solo i terminatori
+        # davvero usati ("," e "}") ottengono una tabella.
         self._number: dict[tuple[str, bool], dict[str, BoolMask]] = {}
+        # Maschere lazy per la decodifica vincolata a un insieme finito di
+        # target (nomi funzione, letterali booleani). L'accumulato è sempre
+        # un prefisso di un target, quindi le chiavi raggiungibili sono poche
+        # e ogni maschera viene riusata su tutti i prompt.
+        self._prefix: dict[tuple[str, tuple[str, ...]], BoolMask] = {}
+
+    def prefix_mask(
+        self, accumulated: str, targets: tuple[str, ...]
+    ) -> BoolMask:
+        """Maschera dei token che mantengono ``accumulated`` prefisso di un target."""
+        key = (accumulated, targets)
+        mask = self._prefix.get(key)
+        if mask is None:
+            mask = np.zeros(self._llm.vocab_size, dtype=bool)
+            for tid, text in self._llm.clean_vocab:
+                candidate = accumulated + text
+                for target in targets:
+                    if target.startswith(candidate):
+                        mask[tid] = True
+                        break
+            self._prefix[key] = mask
+        return mask
 
     def number(
         self, terminator: str, allow_fraction: bool
     ) -> dict[str, BoolMask]:
-        """Restituisce (costruendo al primo utilizzo) le maschere per una grammatica di numero."""
+        """Ritorna (costruendo alla prima chiamata) le maschere per una grammatica numerica."""
         key = (terminator, allow_fraction)
         masks = self._number.get(key)
         if masks is None:
@@ -404,7 +442,7 @@ _MASK_CACHE: weakref.WeakKeyDictionary[TokenizedLLM, GrammarMasks] = (
 
 
 def _grammar_masks(llm: TokenizedLLM) -> GrammarMasks:
-    """Restituisce le tabelle di maschere per ``llm``, costruendole al primo utilizzo."""
+    """Ritorna le tabelle delle maschere per ``llm``, costruendole alla prima chiamata."""
     masks = _MASK_CACHE.get(llm)
     if masks is None:
         masks = GrammarMasks(llm)
@@ -413,13 +451,13 @@ def _grammar_masks(llm: TokenizedLLM) -> GrammarMasks:
 
 
 def _trailing_repetition(text: str) -> tuple[int, int] | None:
-    """Rileva un segmento finale ripetuto (loop di generazione degenere).
+    """Rileva un segmento finale ripetuto (loop di generazione degenerato).
 
-    Restituisce ``(periodo, ripetizioni)`` quando il testo termina con lo stesso
+    Ritorna ``(period, repetitions)`` quando il testo finisce con lo stesso
     segmento ripetuto abbastanza volte da indicare un loop, altrimenti None.
-    Soglie: 5 ripetizioni per segmenti di 1-2 caratteri (così le sequenze brevi
-    legittime come ``"aaa"`` sopravvivono), 3 per segmenti fino a 8 caratteri,
-    2 per segmenti fino a 24 caratteri (cicli lunghi di alternanza come
+    Soglie: 5 ripetizioni per segmenti di 1-2 char (così sequenze brevi legittime
+    come ``"aaa"`` sopravvivono), 3 per segmenti fino a 8 char, 2 per
+    segmenti fino a 24 char (cicli di alternanza lunghi tipo
     ``a|e|i|o|u|A|E|I|O|U|``).
     """
     n = len(text)
@@ -447,13 +485,13 @@ def generate_string(
 ) -> tuple[str, list[int]]:
     """Decodifica il corpo di una stringa JSON (senza virgolette) un token alla volta.
 
-    Negli ultimi ``_STRING_CLOSE_WINDOW`` passi del budget, solo i token che
-    completano la stringa rimangono legali, il che forza la terminazione invece
-    di affidarsi a euristiche di recupero post-hoc.
+    Negli ultimi ``_STRING_CLOSE_WINDOW`` passi del budget solo i token che completano
+    la stringa rimangono validi, il che forza la terminazione invece di affidarsi a
+    euristiche di recupero post-hoc.
 
     Se l'output degenera in un loop ripetitivo, i segmenti finali duplicati vengono
-    annullati (i loro token vengono rimossi dal contesto, mantenendone uno solo) e
-    la stringa viene chiusa forzatamente da quel punto.
+    rollbackati (i loro token vengono rimossi dal contesto, tenendo una singola istanza)
+    e la stringa viene chiusa forzatamente da lì.
     """
     accumulated = ""
     ids = list(input_ids)
@@ -472,8 +510,8 @@ def generate_string(
             while removed < excess and len(ids) > len(input_ids):
                 removed += len(id_text[ids.pop()])
             accumulated = accumulated[:len(accumulated) - removed]
-            # Il rollback potrebbe aver interrotto una sequenza di escape; si
-            # ricalcola lo stato da zero.
+            # Il rollback potrebbe aver spezzato una sequenza di escape; ricalcola
+            # lo stato da zero.
             recomputed = _step_string("body", accumulated)
             if recomputed is None:
                 break
@@ -488,22 +526,27 @@ def generate_string(
             if closing_mask.any():
                 mask = closing_mask
                 if closing_only:
-                    # Dopo un loop degenere, si chiude con la virgoletta nuda
-                    # quando disponibile, invece di lasciare che il modello
-                    # riempia il valore con un token decorativo di chiusura
+                    # Dopo un loop degenerato, chiudi con la virgoletta semplice
+                    # quando disponibile invece di lasciare che il modello
+                    # riempia il valore con un token di chiusura decorativo
                     # (es. '..."').
                     bare = closing_mask & masks.bare_quote
                     if bare.any():
                         mask = bare
         if not mask.any():
             break
-        logits = llm.get_logits(ids)
-        best = _argmax_masked_np(logits, mask)
+        best: int | None
+        if int(mask.sum()) == 1:
+            # Un solo token legale: scelta forzata, niente forward pass.
+            best = int(mask.argmax())
+        else:
+            logits = llm.get_logits(ids)
+            best = _argmax_masked_np(logits, mask)
         if best is None:
             break
         text = id_text[best]
         nxt = _step_string(state, text)
-        if nxt is None:  # unreachable: token came from the valid mask
+        if nxt is None:  # irraggiungibile: il token viene dalla maschera valida
             break
         state = nxt
         accumulated += text
@@ -517,7 +560,7 @@ def generate_string(
 
 
 def _decode_json_string_body(raw: str) -> str:
-    """Risolve le sequenze di escape JSON in un corpo già validato."""
+    """Risolve le sequenze di escape JSON in un body già validato."""
     out: list[str] = []
     i = 0
     n = len(raw)
@@ -533,23 +576,13 @@ def _decode_json_string_body(raw: str) -> str:
             out.append(chr(code))
             i += 6
         else:
-            mapping = {
-                '"': '"',
-                "\\": "\\",
-                "/": "/",
-                "b": "\b",
-                "f": "\f",
-                "n": "\n",
-                "r": "\r",
-                "t": "\t",
-            }
-            out.append(mapping[nxt])
+            out.append(_ESCAPE_MAP[nxt])
             i += 2
     return "".join(out)
 
 
 # ---------------------------------------------------------------------------
-# Scelta del letterale (booleani)
+# Scelta tra letterali (booleani)
 # ---------------------------------------------------------------------------
 
 
@@ -560,26 +593,32 @@ def _choose_literal(
     *,
     max_steps: int = 8,
 ) -> tuple[str, list[int]]:
-    """Decodifica esattamente uno tra ``choices`` mascherando tutto il resto.
+    """Decodifica esattamente uno dei ``choices`` mascherando tutto il resto.
 
-    Nessun terminatore viene consumato: gli id restituiti terminano con il letterale
-    stesso, quindi il chiamante controlla il separatore successivo.
+    Non viene consumato nessun terminatore: gli id restituiti terminano con il
+    letterale stesso, quindi chi chiama controlla il separatore successivo.
     """
     accumulated = ""
     ids = list(input_ids)
     id_text = llm.id_to_text
+    masks = _grammar_masks(llm)
     for _ in range(max_steps):
         if accumulated in choices:
             return accumulated, ids
-        valid: list[int] = []
-        for tid, text in llm.clean_vocab:
-            candidate = accumulated + text
-            if any(choice.startswith(candidate) for choice in choices):
-                valid.append(tid)
-        if not valid:
+        matching = [c for c in choices if c.startswith(accumulated)]
+        if not matching:
+            break
+        if len(matching) == 1:
+            # Scelta univoca: il resto del letterale è forzato, niente
+            # ulteriori chiamate al modello.
+            target = matching[0]
+            ids.extend(llm.encode_cached(target[len(accumulated):]))
+            return target, ids
+        mask = masks.prefix_mask(accumulated, choices)
+        if not mask.any():
             break
         logits = llm.get_logits(ids)
-        best = _argmax_masked(logits, valid)
+        best = _argmax_masked_np(logits, mask)
         if best is None:
             break
         accumulated += id_text[best]
@@ -597,10 +636,8 @@ def _choose_literal(
 # ---------------------------------------------------------------------------
 
 
-class _ValueResult(BaseModel):
+class _ValueResult(NamedTuple):
     """Valore del parametro generato insieme agli id di contesto aggiornati."""
-
-    model_config = ConfigDict(frozen=True)
 
     python_value: Any
     ids: list[int]
@@ -613,19 +650,13 @@ def _coerce_number(text: str, expected: str) -> float | int:
     return float(text)
 
 
-def _default_value(expected: str) -> float | int | str | bool:
-    """Restituisce un valore neutro corretto per tipo di parametro.
+def default_value(expected: str) -> float | int | str | bool:
+    """Ritorna un valore neutro corretto per tipo per un tipo di parametro.
 
-    Usato solo come ultima risorsa in caso di fallback, in modo che l'output
-    rimanga sempre valido per lo schema anche se un singolo decode di valore fallisce.
+    Usato solo come fallback di emergenza così l'output rimane sempre
+    schema-valido anche se la decodifica di un singolo valore fallisce.
     """
-    defaults: dict[str, float | int | str | bool] = {
-        "number": 0.0,
-        "integer": 0,
-        "string": "",
-        "boolean": False,
-    }
-    return defaults[expected]
+    return _TYPE_DEFAULTS[expected]
 
 
 def call_for_prompt(
@@ -635,7 +666,7 @@ def call_for_prompt(
     *,
     debug: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """Trasforma un singolo prompt in linguaggio naturale in ``(name, parameters)``."""
+    """Trasforma un singolo prompt in linguaggio naturale in ``(nome, parametri)``."""
     function_names = [fn.name for fn in functions]
     fn_by_name = {fn.name: fn for fn in functions}
 
@@ -649,27 +680,27 @@ def call_for_prompt(
     if debug:
         print(f"[debug]   -> name={chosen}")
 
-    # Si inietta l'apertura JSON strutturale una volta noto il nome.
-    ids = ids + llm.encode('", "parameters": {')
+    # Inietta l'apertura strutturale JSON una volta noto il nome.
+    ids = ids + llm.encode_cached('", "parameters": {')
 
     parameters: dict[str, Any] = {}
     items = list(chosen_fn.parameters.items())
     for index, (param_name, spec) in enumerate(items):
         is_last = index == len(items) - 1
-        ids = ids + llm.encode(f'"{param_name}": ')
+        ids = ids + llm.encode_cached(f'"{param_name}": ')
         try:
             value = _generate_value(llm, ids, spec, is_last=is_last)
         except RuntimeError:
-            # Mantiene l'output valido per lo schema: fallback a un valore neutro
+            # Mantieni l'output schema-valido: usa un valore neutro
             # solo per questo parametro.
             value = _ValueResult(
-                python_value=_default_value(spec.type), ids=ids
+                python_value=default_value(spec.type), ids=ids
             )
         parameters[param_name] = value.python_value
         ids = value.ids
         if not is_last and spec.type in ("string", "boolean"):
-            # il decoding di number/integer ha già consumato il terminatore ",".
-            ids = ids + llm.encode(", ")
+            # la decodifica di number/integer ha già consumato il terminatore ",".
+            ids = ids + llm.encode_cached(", ")
         if debug:
             print(f"[debug]   -> {param_name}={value.python_value!r}")
     return chosen, parameters
@@ -682,7 +713,7 @@ def _generate_value(
     *,
     is_last: bool,
 ) -> _ValueResult:
-    """Decodifica un singolo valore di parametro in base al suo tipo dichiarato."""
+    """Decodifica il valore di un singolo parametro in base al suo tipo dichiarato."""
     terminator = "}" if is_last else ","
     if spec.type in ("number", "integer"):
         text, new_ids = generate_number(
@@ -695,7 +726,7 @@ def _generate_value(
             python_value=_coerce_number(text, spec.type), ids=new_ids
         )
     if spec.type == "string":
-        ids_with_quote = ids + llm.encode('"')
+        ids_with_quote = ids + llm.encode_cached('"')
         text, new_ids = generate_string(llm, ids_with_quote)
         return _ValueResult(python_value=text, ids=new_ids)
     if spec.type == "boolean":
