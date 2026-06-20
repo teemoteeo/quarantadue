@@ -6,79 +6,91 @@
 /*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#    #+#              */
-/*   Updated: 2026/06/04 00:00:00 by teemoteeo       ###   ########.fr       */
+/*   Updated: 2026/06/19 00:00:00 by teemoteeo       ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "codexion.h"
 
-/*
- * Must be called with sched_mutex held.
- */
 static void	scheduler_enqueue_locked(t_simulation *sim, int coder_id)
 {
 	long long	priority;
 
 	if (sim->scheduler_type == CODEX_FIFO)
-		priority = now_ms();
+		priority = sim->coders[coder_id - 1].wait_since;
 	else
 		priority = sim->coders[coder_id - 1].last_compile_start
 			+ sim->time_to_burnout;
 	heap_push(sim, coder_id, priority);
 }
 
-static int	scheduler_get_front(t_simulation *sim, int coder_id, int *front_id)
+static int	scheduler_pop_front(t_simulation *sim, int *coder_id,
+		long long *priority)
 {
-	pthread_mutex_lock(&sim->sched_mutex);
-	if (heap_is_empty(sim))
-	{
-		pthread_mutex_unlock(&sim->sched_mutex);
+	if (!heap_pop(sim, coder_id, priority))
 		return (0);
-	}
-	*front_id = sim->wait_queue[0].coder_id;
-	pthread_mutex_unlock(&sim->sched_mutex);
-	return (*front_id == coder_id);
+	return (1);
 }
 
+/*
+ * Called with sched_mutex held and our turn confirmed.
+ * Always returns with sched_mutex released.
+ * Returns 1 if the dongle was claimed, 0 if it was busy (self re-enqueued).
+ */
 static int	scheduler_try_claim(t_simulation *sim, int coder_id, t_dongle *d)
 {
-	int			acquired;
-	int			front_id;
-	long long	front_prio;
+	pthread_mutex_unlock(&sim->sched_mutex);
+	if (dongle_try_acquire(d, coder_id))
+		return (1);
+	pthread_mutex_lock(&sim->sched_mutex);
+	scheduler_enqueue_locked(sim, coder_id);
+	pthread_mutex_unlock(&sim->sched_mutex);
+	return (0);
+}
 
-	acquired = dongle_try_acquire(d, coder_id);
-	if (!acquired)
+/*
+ * One scheduling attempt. Lock held on entry, released on exit.
+ * Returns 1 = dongle claimed, -1 = stop requested, 0 = keep waiting.
+ */
+static int	scheduler_step(t_simulation *sim, int coder_id, t_dongle *d)
+{
+	int			front_id;
+	long long	priority;
+
+	if (check_stop(sim))
 	{
-		pthread_mutex_lock(&sim->sched_mutex);
-		heap_pop(sim, &front_id, &front_prio);
+		pthread_mutex_unlock(&sim->sched_mutex);
+		return (-1);
+	}
+	if (!scheduler_pop_front(sim, &front_id, &priority))
+	{
 		scheduler_enqueue_locked(sim, coder_id);
 		pthread_mutex_unlock(&sim->sched_mutex);
 		return (0);
 	}
-	pthread_mutex_lock(&sim->sched_mutex);
-	heap_pop(sim, &front_id, &front_prio);
-	pthread_mutex_unlock(&sim->sched_mutex);
-	return (1);
+	if (front_id != coder_id)
+	{
+		heap_push(sim, front_id, priority);
+		pthread_mutex_unlock(&sim->sched_mutex);
+		return (0);
+	}
+	return (scheduler_try_claim(sim, coder_id, d));
 }
 
 int	scheduler_request_single(t_simulation *sim, int coder_id, t_dongle *d)
 {
-	int	front_id;
+	int	rc;
 
 	pthread_mutex_lock(&sim->sched_mutex);
 	scheduler_enqueue_locked(sim, coder_id);
-	pthread_mutex_unlock(&sim->sched_mutex);
 	while (1)
 	{
-		if (check_stop(sim))
-			return (-1);
-		if (!scheduler_get_front(sim, coder_id, &front_id))
-		{
-			ft_usleep(1);
-			continue ;
-		}
-		if (scheduler_try_claim(sim, coder_id, d))
+		rc = scheduler_step(sim, coder_id, d);
+		if (rc == 1)
 			return (0);
+		if (rc == -1)
+			return (-1);
 		ft_usleep(1);
+		pthread_mutex_lock(&sim->sched_mutex);
 	}
 }

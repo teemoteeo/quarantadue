@@ -6,7 +6,7 @@
 /*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#    #+#              */
-/*   Updated: 2026/06/04 00:00:00 by teemoteeo       ###   ########.fr       */
+/*   Updated: 2026/06/19 00:00:00 by teemoteeo       ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -40,11 +40,13 @@ long long	now_ms(void)
 
 int	dongle_try_acquire(t_dongle *d, int coder_id)
 {
-	int	ret;
+	int			ret;
+	long long	now;
 
 	pthread_mutex_lock(&d->mutex);
+	now = now_ms();
 	ret = 0;
-	if (d->state == DONGLE_COOLDOWN && now_ms() >= d->cooldown_until)
+	if (d->state == DONGLE_COOLDOWN && now >= d->cooldown_until)
 		d->state = DONGLE_FREE;
 	if (d->state == DONGLE_FREE)
 	{

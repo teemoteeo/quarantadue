@@ -14,6 +14,7 @@
 # define CODEXION_H
 
 # include <pthread.h>
+# include <stdatomic.h>
 # include <sys/time.h>
 # include <stdlib.h>
 # include <unistd.h>
@@ -70,6 +71,7 @@ typedef struct s_coder
 	t_coder_state	state;
 	int				compiles_done;
 	long long		last_compile_start;	/* ms timestamp */
+	long long		wait_since;			/* ms timestamp: entered WAITING_DONGLE */
 	long long		state_since;		/* ms timestamp of current state */
 	pthread_t		thread;
 	int				left_dongle;
@@ -92,7 +94,7 @@ typedef struct s_simulation
 	t_dongle		dongles[MAX_CODERS];
 
 	pthread_mutex_t	stop_mutex;
-	int				stop_flag;
+	_Atomic int		stop_flag;
 
 	pthread_mutex_t	log_mutex;
 
@@ -118,16 +120,18 @@ void		log_msg(t_simulation *sim, int coder_id, const char *msg);
 void		dongle_init(t_dongle *d, int id, t_simulation *sim);
 void		dongle_destroy(t_dongle *d);
 int			dongle_try_acquire(t_dongle *d, int coder_id);
-int			dongle_try_acquire_timed(t_dongle *d, int coder_id,
-				long long deadline_ms);
 void		dongle_release(t_dongle *d);
-int			dongle_is_available(const t_dongle *d);
 long long	now_ms(void);
 
 /* coder.c */
 void		*coder_routine(void *arg);
 int			acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right);
 int			check_stop(t_simulation *sim);
+
+/* coder_utils.c */
+void		coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right);
+void		coder_do_debug(t_coder *c);
+void		coder_do_refactor(t_coder *c);
 
 /* heap.c */
 void		heap_init(t_simulation *sim);
@@ -151,7 +155,6 @@ void		simulation_run(t_simulation *sim);
 void		simulation_cleanup(t_simulation *sim);
 void		simulation_init_dongles(t_simulation *sim);
 void		simulation_init_coders(t_simulation *sim);
-void		simulation_init_last_compile(t_simulation *sim);
 void		simulation_spawn_threads(t_simulation *sim);
 void		simulation_join_threads(t_simulation *sim);
 

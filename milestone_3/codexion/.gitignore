@@ -1,4 +1,4 @@
-# Object files
+# --- Build artifacts ---
 obj/
 *.o
 *.d
@@ -6,9 +6,18 @@ obj/
 # Binary
 codexion
 
-# IDE
+# --- Not part of the submission (subject: Makefile, *.c, *.h, README.md) ---
+Subject PDF.pdf
+*.pdf
+CODE_REVIEW.md
+DEBUG_TEST_PLAN.md
+edge_cases.txt
+handoff.md
+
+# IDE / tooling
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 

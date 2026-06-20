@@ -47,18 +47,6 @@ void	simulation_init_dongles(t_simulation *sim)
 	}
 }
 
-void	simulation_init_last_compile(t_simulation *sim)
-{
-	int	i;
-
-	i = 0;
-	while (i < sim->nb_coders)
-	{
-		sim->coders[i].last_compile_start = sim->start_time;
-		i++;
-	}
-}
-
 void	simulation_spawn_threads(t_simulation *sim)
 {
 	int	i;

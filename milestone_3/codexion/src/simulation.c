@@ -21,7 +21,7 @@ void	ft_usleep(long long ms)
 
 void	simulation_init(t_simulation *sim)
 {
-	sim->stop_flag = 0;
+	atomic_store(&sim->stop_flag, 0);
 	pthread_mutex_init(&sim->stop_mutex, NULL);
 	pthread_mutex_init(&sim->log_mutex, NULL);
 	pthread_mutex_init(&sim->sched_mutex, NULL);
@@ -41,7 +41,6 @@ static void	simulation_record_start(t_simulation *sim)
 void	simulation_run(t_simulation *sim)
 {
 	simulation_record_start(sim);
-	simulation_init_last_compile(sim);
 	simulation_spawn_threads(sim);
 	simulation_join_threads(sim);
 }

@@ -13,11 +13,14 @@
 #include "codexion.h"
 #include <sys/time.h>
 
-static int	check_coder_burnout(t_simulation *sim, int i, long long now)
+static int	check_coder_burnout(t_simulation *sim, int i)
 {
+	long long	now;
+
 	if (sim->coders[i].state == CODER_DONE
 		|| sim->coders[i].state == CODER_BURNED_OUT)
 		return (0);
+	now = now_ms();
 	if (now - sim->coders[i].last_compile_start
 		>= sim->time_to_burnout)
 	{
@@ -32,7 +35,7 @@ static int	check_coder_burnout(t_simulation *sim, int i, long long now)
  * Poll all coders for burnout. Returns:
  * 0 = still running, 1 = all done, 2 = burnout detected.
  */
-static int	check_all_done(t_simulation *sim, long long now)
+static int	check_all_done(t_simulation *sim)
 {
 	int	i;
 	int	rc;
@@ -42,7 +45,7 @@ static int	check_all_done(t_simulation *sim, long long now)
 	i = 0;
 	while (i < sim->nb_coders)
 	{
-		rc = check_coder_burnout(sim, i, now);
+		rc = check_coder_burnout(sim, i);
 		if (rc == 2)
 			return (2);
 		if (rc == 1)
@@ -54,9 +57,7 @@ static int	check_all_done(t_simulation *sim, long long now)
 
 static void	set_stop_and_return(t_simulation *sim)
 {
-	pthread_mutex_lock(&sim->stop_mutex);
-	sim->stop_flag = 1;
-	pthread_mutex_unlock(&sim->stop_mutex);
+	atomic_store(&sim->stop_flag, 1);
 }
 
 /*
@@ -72,14 +73,9 @@ void	*monitor_routine(void *arg)
 	sim = (t_simulation *)arg;
 	while (1)
 	{
-		pthread_mutex_lock(&sim->stop_mutex);
-		if (sim->stop_flag)
-		{
-			pthread_mutex_unlock(&sim->stop_mutex);
+		if (atomic_load(&sim->stop_flag))
 			return (NULL);
-		}
-		pthread_mutex_unlock(&sim->stop_mutex);
-		rc = check_all_done(sim, now_ms());
+		rc = check_all_done(sim);
 		if (rc != 0)
 		{
 			set_stop_and_return(sim);

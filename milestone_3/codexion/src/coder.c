@@ -3,74 +3,41 @@
 /*                                                        :::      ::::::::   */
 /*   coder.c                                            :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+        */
+/*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+    */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#    #+#             */
-/*   Updated: 2026/06/04 00:00:00 by teemoteeo       ###   ########.fr       */
+/*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#   #+#             */
+/*   Updated: 2026/06/19 00:00:00 by teemoteeo        ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "codexion.h"
 
-static int	try_acquire(t_dongle *d, t_coder *c)
+void	*coder_routine(void *arg)
 {
-	pthread_mutex_lock(&d->mutex);
-	if (d->state == DONGLE_COOLDOWN && now_ms() >= d->cooldown_until)
-		d->state = DONGLE_FREE;
-	if (d->state != DONGLE_FREE)
-	{
-		pthread_mutex_unlock(&d->mutex);
-		return (0);
-	}
-	d->state = DONGLE_HELD;
-	d->held_by = c->id;
-	pthread_mutex_unlock(&d->mutex);
-	return (1);
-}
+	t_coder		*c;
+	t_dongle	*left;
+	t_dongle	*right;
 
-static int	acquire_loop(t_coder *c, t_dongle *first, t_dongle *second)
-{
-	if (check_stop(c->sim))
-		return (-1);
-	if (!try_acquire(first, c))
+	c = (t_coder *)arg;
+	left = &c->sim->dongles[c->left_dongle];
+	right = &c->sim->dongles[c->right_dongle];
+	c->last_compile_start = now_ms();
+	while (c->compiles_done < c->sim->compiles_required)
 	{
-		ft_usleep(1);
-		return (2);
+		c->state = CODER_WAITING_DONGLE;
+		c->wait_since = now_ms();
+		if (acquire_both_dongles(c, left, right) != 0)
+			return (NULL);
+		coder_do_compile(c, left, right);
+		if (check_stop(c->sim))
+			return (NULL);
+		coder_do_debug(c);
+		if (check_stop(c->sim))
+			return (NULL);
+		coder_do_refactor(c);
+		if (check_stop(c->sim))
+			return (NULL);
 	}
-	log_msg(c->sim, c->id, "has taken a dongle");
-	if (first == second)
-		return (0);
-	if (!try_acquire(second, c))
-	{
-		dongle_release(first);
-		ft_usleep(1);
-		return (2);
-	}
-	log_msg(c->sim, c->id, "has taken a dongle");
-	return (0);
-}
-
-/* Acquire both dongles in index order to avoid deadlock. */
-int	acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right)
-{
-	t_dongle	*first;
-	t_dongle	*second;
-	int			rc;
-
-	if (c->left_dongle <= c->right_dongle)
-	{
-		first = left;
-		second = right;
-	}
-	else
-	{
-		first = right;
-		second = left;
-	}
-	while (1)
-	{
-		rc = acquire_loop(c, first, second);
-		if (rc != 2)
-			return (rc);
-	}
+	c->state = CODER_DONE;
+	return (NULL);
 }

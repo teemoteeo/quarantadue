@@ -6,7 +6,7 @@
 /*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#    #+#              */
-/*   Updated: 2026/06/04 00:00:00 by teemoteeo       ###   ########.fr       */
+/*   Updated: 2026/06/19 00:00:00 by teemoteeo       ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,14 +14,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Min-heap: key = priority (arrival time/EDF deadline), tie by coder_id. */
-
 #define HEAP_INIT_CAP	16
 
 void	heap_init(t_simulation *sim)
 {
-	sim->wait_queue_capacity = HEAP_INIT_CAP;
-	sim->wait_queue = malloc(sizeof(t_heap_node) * sim->wait_queue_capacity);
+	if (sim->nb_coders > 0)
+		sim->wait_queue_capacity = sim->nb_coders;
+	else
+		sim->wait_queue_capacity = HEAP_INIT_CAP;
+	sim->wait_queue = calloc(sim->wait_queue_capacity, sizeof(t_heap_node));
 	if (!sim->wait_queue)
 		die("malloc failed");
 	sim->wait_queue_size = 0;
