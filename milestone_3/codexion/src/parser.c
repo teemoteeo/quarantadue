@@ -38,16 +38,21 @@ static int	ft_atoi(const char *s)
 
 static int	is_valid_number(const char *s)
 {
-	int	i;
+	int			i;
+	long long	n;
 
 	i = 0;
 	if (s[i] == '-' || s[i] == '+')
 		i++;
 	if (s[i] == '\0')
 		return (0);
+	n = 0;
 	while (s[i])
 	{
 		if (s[i] < '0' || s[i] > '9')
+			return (0);
+		n = n * 10 + (s[i] - '0');
+		if (n > 2147483647)
 			return (0);
 		i++;
 	}
@@ -83,7 +88,8 @@ static int	parse_and_validate(char **argv, t_simulation *sim)
 	if (sched < 0)
 		return (1);
 	sim->scheduler_type = (t_scheduler)sched;
-	if (sim->nb_coders <= 0 || sim->time_to_burnout < 0
+	if (sim->nb_coders <= 0 || sim->nb_coders > MAX_CODERS
+		|| sim->time_to_burnout < 0
 		|| sim->time_to_compile <= 0 || sim->time_to_debug < 0
 		|| sim->time_to_refactor < 0 || sim->compiles_required <= 0
 		|| sim->dongle_cooldown_ms < 0)

@@ -25,7 +25,7 @@ void	simulation_init_coders(t_simulation *sim)
 	while (i < sim->nb_coders)
 	{
 		sim->coders[i].id = i + 1;
-		sim->coders[i].state = CODER_IDLE;
+		sim->coders[i].state = CODER_RUNNING;
 		sim->coders[i].compiles_done = 0;
 		sim->coders[i].last_compile_start = 0;
 		sim->coders[i].sim = sim;
@@ -42,7 +42,7 @@ void	simulation_init_dongles(t_simulation *sim)
 	i = 0;
 	while (i < sim->nb_coders)
 	{
-		dongle_init(&sim->dongles[i], i, sim);
+		dongle_init(&sim->dongles[i], sim);
 		i++;
 	}
 }

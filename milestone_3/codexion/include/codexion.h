@@ -14,13 +14,11 @@
 # define CODEXION_H
 
 # include <pthread.h>
-# include <stdatomic.h>
 # include <sys/time.h>
 # include <stdlib.h>
 # include <unistd.h>
 
 # define MAX_CODERS		256
-# define BURNOUT_TOLERANCE_MS	10
 
 typedef enum e_scheduler
 {
@@ -31,7 +29,7 @@ typedef enum e_scheduler
 typedef struct s_heap_node
 {
 	int			coder_id;
-	long long	priority;	/* arrival time (FIFO) or deadline (EDF) */
+	long long	priority;
 }	t_heap_node;
 
 typedef enum e_dongle_state
@@ -43,24 +41,26 @@ typedef enum e_dongle_state
 
 typedef struct s_simulation	t_simulation;
 
-typedef struct s_dongle
+typedef struct s_sched
 {
-	int				id;
-	t_dongle_state	state;
-	int				held_by;		/* coder_id, or -1 if free */
-	long long		cooldown_until;	/* ms timestamp when cooldown ends */
 	pthread_mutex_t	mutex;
 	pthread_cond_t	cond;
+	t_heap_node		queue[2];
+	int				size;
+}	t_sched;
+
+typedef struct s_dongle
+{
+	t_dongle_state	state;
+	long long		cooldown_until;
+	pthread_mutex_t	mutex;
+	t_sched			sched;
 	t_simulation	*sim;
 }	t_dongle;
 
 typedef enum e_coder_state
 {
-	CODER_IDLE,
-	CODER_WAITING_DONGLE,
-	CODER_COMPILING,
-	CODER_DEBUGGING,
-	CODER_REFACTORING,
+	CODER_RUNNING,
 	CODER_BURNED_OUT,
 	CODER_DONE
 }	t_coder_state;
@@ -70,9 +70,8 @@ typedef struct s_coder
 	int				id;
 	t_coder_state	state;
 	int				compiles_done;
-	long long		last_compile_start;	/* ms timestamp */
-	long long		wait_since;			/* ms timestamp: entered WAITING_DONGLE */
-	long long		state_since;		/* ms timestamp of current state */
+	long long		last_compile_start;
+	long long		wait_since;
 	pthread_t		thread;
 	int				left_dongle;
 	int				right_dongle;
@@ -93,21 +92,15 @@ typedef struct s_simulation
 	t_coder			coders[MAX_CODERS];
 	t_dongle		dongles[MAX_CODERS];
 
+	int				stop_flag;
 	pthread_mutex_t	stop_mutex;
-	_Atomic int		stop_flag;
 
 	pthread_mutex_t	log_mutex;
+	pthread_mutex_t	state_mutex;
 
 	pthread_t		monitor_thread;
-	long long		start_time;		/* simulation start timestamp (ms) */
-	pthread_mutex_t	sched_mutex;
-	t_heap_node		*wait_queue;
-	int				wait_queue_size;
-	int				wait_queue_capacity;
+	long long		start_time;
 }	t_simulation;
-
-/* main.c */
-void		die(const char *msg);
 
 /* parser.c */
 int			parse_args(int argc, char **argv, t_simulation *sim);
@@ -115,18 +108,26 @@ int			parse_args(int argc, char **argv, t_simulation *sim);
 /* logger.c */
 long long	timestamp_ms(const t_simulation *sim);
 void		log_msg(t_simulation *sim, int coder_id, const char *msg);
+void		log_state(t_simulation *sim, int coder_id, const char *msg);
 
 /* dongle.c */
-void		dongle_init(t_dongle *d, int id, t_simulation *sim);
+void		dongle_init(t_dongle *d, t_simulation *sim);
 void		dongle_destroy(t_dongle *d);
-int			dongle_try_acquire(t_dongle *d, int coder_id);
+int			dongle_try_acquire(t_dongle *d);
 void		dongle_release(t_dongle *d);
 long long	now_ms(void);
+
+/* state.c */
+void		set_last_compile(t_coder *c, long long t);
+void		set_coder_state(t_coder *c, t_coder_state st);
+void		read_coder_state(t_simulation *sim, int i, t_coder_state *st,
+				long long *last);
 
 /* coder.c */
 void		*coder_routine(void *arg);
 int			acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right);
 int			check_stop(t_simulation *sim);
+void		set_stop(t_simulation *sim);
 
 /* coder_utils.c */
 void		coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right);
@@ -134,13 +135,9 @@ void		coder_do_debug(t_coder *c);
 void		coder_do_refactor(t_coder *c);
 
 /* heap.c */
-void		heap_init(t_simulation *sim);
-void		heap_destroy(t_simulation *sim);
-void		heap_push(t_simulation *sim, int coder_id, long long priority);
-int			heap_pop(t_simulation *sim, int *coder_id, long long *priority);
-int			heap_is_empty(const t_simulation *sim);
-void		heap_sift_up(t_heap_node *heap, int idx);
-void		heap_sift_down(t_heap_node *heap, int size, int idx);
+void		heap_init(t_sched *sq);
+void		heap_push(t_sched *sq, int coder_id, long long priority);
+void		heap_remove_by_id(t_sched *sq, int coder_id);
 
 /* scheduler.c */
 int			scheduler_request_single(t_simulation *sim, int coder_id,

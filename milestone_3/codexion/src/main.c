@@ -14,12 +14,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void	die(const char *msg)
-{
-	fprintf(stderr, "error: %s\n", msg);
-	exit(EXIT_FAILURE);
-}
-
 int	main(int argc, char **argv)
 {
 	t_simulation	sim;

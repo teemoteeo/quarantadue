@@ -11,8 +11,6 @@
 /* ************************************************************************** */
 
 #include "codexion.h"
-#include <sys/time.h>
-#include <unistd.h>
 
 void	ft_usleep(long long ms)
 {
@@ -21,11 +19,10 @@ void	ft_usleep(long long ms)
 
 void	simulation_init(t_simulation *sim)
 {
-	atomic_store(&sim->stop_flag, 0);
+	sim->stop_flag = 0;
 	pthread_mutex_init(&sim->stop_mutex, NULL);
 	pthread_mutex_init(&sim->log_mutex, NULL);
-	pthread_mutex_init(&sim->sched_mutex, NULL);
-	heap_init(sim);
+	pthread_mutex_init(&sim->state_mutex, NULL);
 	simulation_init_dongles(sim);
 	simulation_init_coders(sim);
 }
@@ -33,9 +30,16 @@ void	simulation_init(t_simulation *sim)
 static void	simulation_record_start(t_simulation *sim)
 {
 	struct timeval	tv;
+	int				i;
 
 	gettimeofday(&tv, NULL);
 	sim->start_time = (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+	i = 0;
+	while (i < sim->nb_coders)
+	{
+		sim->coders[i].last_compile_start = sim->start_time;
+		i++;
+	}
 }
 
 void	simulation_run(t_simulation *sim)
@@ -57,6 +61,5 @@ void	simulation_cleanup(t_simulation *sim)
 	}
 	pthread_mutex_destroy(&sim->stop_mutex);
 	pthread_mutex_destroy(&sim->log_mutex);
-	pthread_mutex_destroy(&sim->sched_mutex);
-	heap_destroy(sim);
+	pthread_mutex_destroy(&sim->state_mutex);
 }

@@ -12,6 +12,18 @@
 
 #include "codexion.h"
 
+/*
+ * Single coder: only one dongle exists, so two can never be held at once.
+ * The coder keeps its lone dongle and waits until the monitor flags burnout.
+ */
+static int	wait_single_dongle(t_coder *c, t_dongle *dongle1)
+{
+	while (!check_stop(c->sim))
+		ft_usleep(1);
+	dongle_release(dongle1);
+	return (-1);
+}
+
 int	acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right)
 {
 	t_dongle	*dongle1;
@@ -29,23 +41,54 @@ int	acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right)
 	}
 	if (scheduler_request_single(c->sim, c->id, dongle1) != 0)
 		return (-1);
-	if (dongle1 != dongle2
-		&& scheduler_request_single(c->sim, c->id, dongle2) != 0)
+	log_state(c->sim, c->id, "has taken a dongle");
+	if (check_stop(c->sim))
+	{
+		dongle_release(dongle1);
 		return (-1);
-	log_msg(c->sim, c->id, "has taken both dongles");
+	}
+	if (dongle1 == dongle2)
+		return (wait_single_dongle(c, dongle1));
+	while (!dongle_try_acquire(dongle2))
+	{
+		if (check_stop(c->sim))
+		{
+			dongle_release(dongle1);
+			return (-1);
+		}
+		ft_usleep(1);
+	}
+	if (check_stop(c->sim))
+	{
+		dongle_release(dongle1);
+		dongle_release(dongle2);
+		return (-1);
+	}
+	log_state(c->sim, c->id, "has taken a dongle");
 	return (0);
 }
 
 int	check_stop(t_simulation *sim)
 {
-	return (atomic_load(&sim->stop_flag));
+	int	stopped;
+
+	pthread_mutex_lock(&sim->stop_mutex);
+	stopped = sim->stop_flag;
+	pthread_mutex_unlock(&sim->stop_mutex);
+	return (stopped);
+}
+
+void	set_stop(t_simulation *sim)
+{
+	pthread_mutex_lock(&sim->stop_mutex);
+	sim->stop_flag = 1;
+	pthread_mutex_unlock(&sim->stop_mutex);
 }
 
 void	coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right)
 {
-	c->last_compile_start = now_ms();
-	c->state = CODER_COMPILING;
-	log_msg(c->sim, c->id, "is compiling");
+	set_last_compile(c, now_ms());
+	log_state(c->sim, c->id, "is compiling");
 	ft_usleep(c->sim->time_to_compile);
 	dongle_release(left);
 	dongle_release(right);
@@ -54,14 +97,12 @@ void	coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right)
 
 void	coder_do_debug(t_coder *c)
 {
-	c->state = CODER_DEBUGGING;
-	log_msg(c->sim, c->id, "is debugging");
+	log_state(c->sim, c->id, "is debugging");
 	ft_usleep(c->sim->time_to_debug);
 }
 
 void	coder_do_refactor(t_coder *c)
 {
-	c->state = CODER_REFACTORING;
-	log_msg(c->sim, c->id, "is refactoring");
+	log_state(c->sim, c->id, "is refactoring");
 	ft_usleep(c->sim->time_to_refactor);
 }

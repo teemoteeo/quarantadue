@@ -6,68 +6,59 @@
 /*   By: teemoteeo <teemoteeo@student.42.fr>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/06/04 00:00:00 by teemoteeo        #+#    #+#              */
-/*   Updated: 2026/06/19 00:00:00 by teemoteeo       ###   ########.fr       */
+/*   Updated: 2026/06/22 00:00:00 by teemoteeo       ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "codexion.h"
-#include <stdlib.h>
-#include <string.h>
 
-#define HEAP_INIT_CAP	16
-
-void	heap_init(t_simulation *sim)
+/*
+ * The subject fixes a coder/dongle ring, so each dongle is contended by
+ * exactly its 2 neighbours: the queue holds at most 2 entries. Keep the min
+ * at index 0 with a single compare on push.
+ */
+static int	node_is_smaller(t_heap_node a, t_heap_node b)
 {
-	if (sim->nb_coders > 0)
-		sim->wait_queue_capacity = sim->nb_coders;
+	if (a.priority != b.priority)
+		return (a.priority < b.priority);
+	return (a.coder_id < b.coder_id);
+}
+
+void	heap_init(t_sched *sq)
+{
+	sq->size = 0;
+}
+
+void	heap_push(t_sched *sq, int coder_id, long long priority)
+{
+	t_heap_node	node;
+
+	node.coder_id = coder_id;
+	node.priority = priority;
+	if (sq->size == 0 || node_is_smaller(sq->queue[0], node))
+		sq->queue[sq->size] = node;
 	else
-		sim->wait_queue_capacity = HEAP_INIT_CAP;
-	sim->wait_queue = calloc(sim->wait_queue_capacity, sizeof(t_heap_node));
-	if (!sim->wait_queue)
-		die("malloc failed");
-	sim->wait_queue_size = 0;
-}
-
-void	heap_destroy(t_simulation *sim)
-{
-	free(sim->wait_queue);
-	sim->wait_queue = NULL;
-	sim->wait_queue_size = 0;
-	sim->wait_queue_capacity = 0;
-}
-
-void	heap_push(t_simulation *sim, int coder_id, long long priority)
-{
-	if (sim->wait_queue_size >= sim->wait_queue_capacity)
 	{
-		sim->wait_queue_capacity *= 2;
-		sim->wait_queue = realloc(sim->wait_queue,
-				sizeof(t_heap_node) * sim->wait_queue_capacity);
-		if (!sim->wait_queue)
-			die("realloc failed");
+		sq->queue[1] = sq->queue[0];
+		sq->queue[0] = node;
 	}
-	sim->wait_queue[sim->wait_queue_size].coder_id = coder_id;
-	sim->wait_queue[sim->wait_queue_size].priority = priority;
-	heap_sift_up(sim->wait_queue, sim->wait_queue_size);
-	sim->wait_queue_size++;
+	sq->size++;
 }
 
-int	heap_pop(t_simulation *sim, int *coder_id, long long *priority)
+void	heap_remove_by_id(t_sched *sq, int coder_id)
 {
-	if (sim->wait_queue_size == 0)
-		return (0);
-	*coder_id = sim->wait_queue[0].coder_id;
-	*priority = sim->wait_queue[0].priority;
-	sim->wait_queue_size--;
-	if (sim->wait_queue_size > 0)
+	int	i;
+
+	i = 0;
+	while (i < sq->size)
 	{
-		sim->wait_queue[0] = sim->wait_queue[sim->wait_queue_size];
-		heap_sift_down(sim->wait_queue, sim->wait_queue_size, 0);
+		if (sq->queue[i].coder_id == coder_id)
+		{
+			sq->size--;
+			if (i < sq->size)
+				sq->queue[i] = sq->queue[sq->size];
+			return ;
+		}
+		i++;
 	}
-	return (1);
-}
-
-int	heap_is_empty(const t_simulation *sim)
-{
-	return (sim->wait_queue_size == 0);
 }

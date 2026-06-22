@@ -23,14 +23,13 @@ SRCS		:= $(SRCDIR)/main.c \
 			   $(SRCDIR)/coder.c \
 			   $(SRCDIR)/coder_utils.c \
 			   $(SRCDIR)/dongle.c \
-			   $(SRCDIR)/dongle_utils.c \
 			   $(SRCDIR)/scheduler.c \
 			   $(SRCDIR)/monitor.c \
 			   $(SRCDIR)/logger.c \
 			   $(SRCDIR)/heap.c \
-			   $(SRCDIR)/heap_utils.c \
 			   $(SRCDIR)/simulation.c \
 			   $(SRCDIR)/simulation_utils.c \
+			   $(SRCDIR)/state.c \
 			   $(SRCDIR)/parser.c
 
 OBJS		:= $(SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)

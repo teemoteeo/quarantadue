@@ -11,20 +11,21 @@
 /* ************************************************************************** */
 
 #include "codexion.h"
-#include <sys/time.h>
 
 static int	check_coder_burnout(t_simulation *sim, int i)
 {
-	long long	now;
+	long long		now;
+	t_coder_state	st;
+	long long		last;
 
-	if (sim->coders[i].state == CODER_DONE
-		|| sim->coders[i].state == CODER_BURNED_OUT)
+	read_coder_state(sim, i, &st, &last);
+	if (st == CODER_DONE || st == CODER_BURNED_OUT)
 		return (0);
 	now = now_ms();
-	if (now - sim->coders[i].last_compile_start
-		>= sim->time_to_burnout)
+	if (now - last >= sim->time_to_burnout)
 	{
-		sim->coders[i].state = CODER_BURNED_OUT;
+		set_coder_state(&sim->coders[i], CODER_BURNED_OUT);
+		set_stop(sim);
 		log_msg(sim, sim->coders[i].id, "burned out");
 		return (2);
 	}
@@ -55,9 +56,23 @@ static int	check_all_done(t_simulation *sim)
 	return (all_done);
 }
 
-static void	set_stop_and_return(t_simulation *sim)
+/*
+ * Raise the global stop flag and wake every coder blocked on any
+ * per-dongle sched_cond so they observe the stop and unwind.
+ */
+static void	signal_stop(t_simulation *sim)
 {
-	atomic_store(&sim->stop_flag, 1);
+	int	i;
+
+	set_stop(sim);
+	i = 0;
+	while (i < sim->nb_coders)
+	{
+		pthread_mutex_lock(&sim->dongles[i].sched.mutex);
+		pthread_cond_broadcast(&sim->dongles[i].sched.cond);
+		pthread_mutex_unlock(&sim->dongles[i].sched.mutex);
+		i++;
+	}
 }
 
 /*
@@ -73,12 +88,12 @@ void	*monitor_routine(void *arg)
 	sim = (t_simulation *)arg;
 	while (1)
 	{
-		if (atomic_load(&sim->stop_flag))
+		if (check_stop(sim))
 			return (NULL);
 		rc = check_all_done(sim);
 		if (rc != 0)
 		{
-			set_stop_and_return(sim);
+			signal_stop(sim);
 			return (NULL);
 		}
 		ft_usleep(1);
