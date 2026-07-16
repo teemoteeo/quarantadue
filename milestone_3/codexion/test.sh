@@ -7,6 +7,11 @@ BIN=./codexion
 PASS=0
 FAIL=0
 
+# GNU coreutils ships `timeout`; macOS calls it `gtimeout` (brew install coreutils).
+if command -v timeout >/dev/null 2>&1; then timeout() { command timeout "$@"; }
+elif command -v gtimeout >/dev/null 2>&1; then timeout() { command gtimeout "$@"; }
+else echo "error: need 'timeout' (Linux) or 'gtimeout' (brew install coreutils)"; exit 1; fi
+
 green() { printf '\033[32m%s\033[0m' "$1"; }
 red()   { printf '\033[31m%s\033[0m' "$1"; }
 
@@ -15,6 +20,11 @@ ko()   { FAIL=$((FAIL+1)); printf '[%s] %s\n' "$(red FAIL)" "$1";
          [ -n "$2" ] && printf '       %s\n' "$2"; }
 
 section() { printf '\n=== %s ===\n' "$1"; }
+skip() { printf '[%s] %s\n' "SKIP" "$1"; [ -n "$2" ] && printf '       %s\n' "$2"; }
+
+# valgrind has no Apple Silicon support; skip mem/race checks when it's absent.
+HAVE_VALGRIND=0
+command -v valgrind >/dev/null 2>&1 && HAVE_VALGRIND=1
 
 # ---------------------------------------------------------------------------
 section "BUILD"
@@ -176,26 +186,34 @@ else ko "N=1 never compiles" "saw $c1 compiling lines"; fi
 # ===========================================================================
 section "VALGRIND LEAK CHECK"
 
-valgrind --leak-check=full --error-exitcode=42 -q \
-  timeout 3 "$BIN" 4 250 200 300 300 100 100 fifo >/dev/null 2>/tmp/cx_vg1.log
-[ $? -eq 0 ] && ok "valgrind burnout run: no leaks" \
-            || ko "valgrind burnout run" "$(grep -E 'lost|ERROR SUMMARY' /tmp/cx_vg1.log | head -2)"
+if [ "$HAVE_VALGRIND" -eq 0 ]; then
+  skip "valgrind leak checks" "valgrind unavailable (no Apple Silicon support); run on Linux"
+else
+  valgrind --leak-check=full --error-exitcode=42 -q \
+    timeout 3 "$BIN" 4 250 200 300 300 100 100 fifo >/dev/null 2>/tmp/cx_vg1.log
+  [ $? -eq 0 ] && ok "valgrind burnout run: no leaks" \
+              || ko "valgrind burnout run" "$(grep -E 'lost|ERROR SUMMARY' /tmp/cx_vg1.log | head -2)"
 
-valgrind --leak-check=full --error-exitcode=42 -q \
-  timeout 6 "$BIN" 3 2000 100 100 100 2 50 fifo >/dev/null 2>/tmp/cx_vg2.log
-[ $? -eq 0 ] && ok "valgrind completion run: no leaks" \
-            || ko "valgrind completion run" "$(grep -E 'lost|ERROR SUMMARY' /tmp/cx_vg2.log | head -2)"
+  valgrind --leak-check=full --error-exitcode=42 -q \
+    timeout 6 "$BIN" 3 2000 100 100 100 2 50 fifo >/dev/null 2>/tmp/cx_vg2.log
+  [ $? -eq 0 ] && ok "valgrind completion run: no leaks" \
+              || ko "valgrind completion run" "$(grep -E 'lost|ERROR SUMMARY' /tmp/cx_vg2.log | head -2)"
+fi
 
 # ===========================================================================
 # 9. HELGRIND: real "Possible data race" = FAIL; dubious cond = benign/info
 # ===========================================================================
 section "HELGRIND DATA RACE (informational)"
 
-valgrind --tool=helgrind -q \
-  timeout 6 "$BIN" 3 400 100 150 150 3 80 fifo >/dev/null 2>/tmp/cx_hg.log
-races=$(grep -c "Possible data race" /tmp/cx_hg.log)
-if [ "$races" -eq 0 ]; then ok "helgrind: 0 data races"
-else ko "helgrind: $races data race(s)" "$(grep -A2 'Possible data race' /tmp/cx_hg.log | head -4)"; fi
+if [ "$HAVE_VALGRIND" -eq 0 ]; then
+  skip "helgrind data race" "valgrind unavailable (no Apple Silicon support); run on Linux"
+else
+  valgrind --tool=helgrind -q \
+    timeout 6 "$BIN" 3 400 100 150 150 3 80 fifo >/dev/null 2>/tmp/cx_hg.log
+  races=$(grep -c "Possible data race" /tmp/cx_hg.log)
+  if [ "$races" -eq 0 ]; then ok "helgrind: 0 data races"
+  else ko "helgrind: $races data race(s)" "$(grep -A2 'Possible data race' /tmp/cx_hg.log | head -4)"; fi
+fi
 
 # ===========================================================================
 # 10. STRESS / DEADLOCK: varied N, generous guard (slow != deadlock).

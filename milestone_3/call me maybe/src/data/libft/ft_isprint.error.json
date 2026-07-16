@@ -1,0 +1,5 @@
+{
+  "name": "ft_isprint",
+  "model": "qwen2.5-0.5b-instruct-mlx",
+  "response": "#include <stddef.h>\n\nint ft_isprint(int c);\n```\n\nThis file contains the prototype for the `ft_isprint` function, which is a C99 standard library function that checks if an integer (integer type) `c` is printable, including space."
+}

@@ -1,4 +1,4 @@
-.PHONY: install run debug debug-trace clean lint lint-strict
+.PHONY: install run debug debug-trace clean lint lint-strict libft clean-libft
 
 export UV_CACHE_DIR ?= $(CURDIR)/.cache/uv
 export HF_HOME ?= $(CURDIR)/.cache/huggingface
@@ -31,8 +31,15 @@ debug-trace:
 		--output $(OUTPUT) \
 		--debug
 
+libft:
+	$(PY) $(SRC)/libft_gen.py
+
+clean-libft:
+	rm -rf data/libft/
+
 clean:
 	rm -rf $(OUTPUT)
+	rm -rf data/libft/
 	rm -rf $(SRC)/__pycache__
 	rm -rf .mypy_cache
 	find $(SRC) -type d -name __pycache__ -exec rm -rf {} +
