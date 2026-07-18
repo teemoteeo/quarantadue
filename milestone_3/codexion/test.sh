@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Codexion defense test harness.
-# Deps: coreutils, grep, awk, valgrind. No bash arrays of cleverness, just checks.
-# Args order: nb_coders burnout compile debug refactor compiles_required cooldown scheduler
+# Script di test per la difesa di Codexion.
+# Dipendenze: coreutils, grep, awk, valgrind. Niente magie con gli array bash, solo controlli.
+# Ordine argomenti: nb_coders burnout compile debug refactor compiles_required cooldown scheduler
 
 BIN=./codexion
 PASS=0
 FAIL=0
+trap 'rm -f /tmp/cx_*.log /tmp/cx_fmt_err.log' EXIT
 
-# GNU coreutils ships `timeout`; macOS calls it `gtimeout` (brew install coreutils).
+# GNU coreutils include `timeout`; su macOS si chiama `gtimeout` (brew install coreutils).
 if command -v timeout >/dev/null 2>&1; then timeout() { command timeout "$@"; }
 elif command -v gtimeout >/dev/null 2>&1; then timeout() { command gtimeout "$@"; }
 else echo "error: need 'timeout' (Linux) or 'gtimeout' (brew install coreutils)"; exit 1; fi
@@ -22,7 +23,7 @@ ko()   { FAIL=$((FAIL+1)); printf '[%s] %s\n' "$(red FAIL)" "$1";
 section() { printf '\n=== %s ===\n' "$1"; }
 skip() { printf '[%s] %s\n' "SKIP" "$1"; [ -n "$2" ] && printf '       %s\n' "$2"; }
 
-# valgrind has no Apple Silicon support; skip mem/race checks when it's absent.
+# valgrind non gira su Apple Silicon; se manca, saltiamo i controlli su memoria/race.
 HAVE_VALGRIND=0
 command -v valgrind >/dev/null 2>&1 && HAVE_VALGRIND=1
 
@@ -34,7 +35,7 @@ if [ $? -eq 0 ] && [ -x "$BIN" ]; then ok "make re"; else
 fi
 
 # ===========================================================================
-# 1. ARGUMENT VALIDATION  -> expect non-zero exit, usage on stderr, no crash
+# 1. VALIDAZIONE ARGOMENTI -> ci si aspetta exit non zero, usage su stderr, no crash
 # ===========================================================================
 section "ARGUMENT VALIDATION (expect non-zero exit + stderr usage, no crash)"
 
@@ -62,9 +63,15 @@ check_reject "scheduler FIFO (caps)"   4 800 200 200 200 5 100 FIFO
 check_reject "scheduler random"        4 800 200 200 200 5 100 random
 check_reject "scheduler empty"         4 800 200 200 200 5 100 ""
 check_reject "nb_coders 100000 (>MAX)" 100000 800 200 200 200 5 100 fifo
+check_reject "negative compile"        4 800 -200 200 200 5 100 fifo
+check_reject "negative debug"          4 800 200 -200 200 5 100 fifo
+check_reject "negative refactor"       4 800 200 200 -200 5 100 fifo
+check_reject "negative cooldown"       4 800 200 200 200 5 -100 fifo
+check_reject "one arg short (7)"       4 800 200 200 200 5 100
+check_reject "zero args"
 
 # ===========================================================================
-# 2. N=1  -> exactly one "has taken a dongle" then "burned out", must exit
+# 2. N=1  -> esattamente un "has taken a dongle" e poi "burned out", deve uscire
 # ===========================================================================
 section "N=1 SINGLE DONGLE BURNOUT"
 
@@ -83,13 +90,13 @@ else
 fi
 
 # ===========================================================================
-# 3. FEASIBLE: no burnout (fifo + edf), run ~5s, assert NO "burned out"
+# 3. FATTIBILE: nessun burnout (fifo + edf), girare ~5s, verificare che NON esca "burned out"
 # ===========================================================================
 section "FEASIBLE (no coder should burn out)"
 
 no_burnout() {
   desc="$1"; shift
-  timeout 5 "$BIN" "$@" >/tmp/cx_feas.log 2>&1   # timeout-guard; 124 expected (long run)
+  timeout 5 "$BIN" "$@" >/tmp/cx_feas.log 2>&1   # guardia col timeout; 124 è atteso (run lungo)
   if grep -q "burned out" /tmp/cx_feas.log; then
     ko "$desc" "$(grep 'burned out' /tmp/cx_feas.log | head -1)"
   else
@@ -100,7 +107,39 @@ no_burnout "feasible fifo" 4 1500 200 200 200 1000 100 fifo
 no_burnout "feasible edf"  4 1500 200 200 200 1000 100 edf
 
 # ===========================================================================
-# 4. FORCED BURNOUT: last line is "burned out", nothing after. Repeat 40x.
+# 3b. LIMITE DI CONCORRENZA: al massimo floor(N/2) coder in compilazione nello
+#     stesso istante (N dongle in cerchio, ne servono 2 per compilare -> tetto rigido).
+# ===========================================================================
+section "CONCURRENCY BOUND (max floor(N/2) simultaneous compiles)"
+
+conc_check() {
+  desc="$1"; n="$2"; shift 2
+  timeout 5 "$BIN" "$n" "$@" >/tmp/cx_conc.log 2>&1
+  cap=$((n/2))
+  awk -v cap="$cap" '
+  {
+    ts=$1; msg=substr($0, index($0,$3))
+    if (msg=="is compiling") ev[ts]++
+    else if (msg=="is debugging") ev[ts]--
+  }
+  END {
+    n=0
+    for (t in ev) order[++n]=t+0
+    for (i=1;i<=n;i++) for (j=i+1;j<=n;j++) if (order[j]<order[i]) { tmp=order[i]; order[i]=order[j]; order[j]=tmp }
+    cur=0; maxc=0
+    for (i=1;i<=n;i++) { cur+=ev[order[i]]; if (cur>maxc) maxc=cur }
+    if (maxc>cap) { print "max concurrent="maxc" cap="cap; exit 1 }
+    exit 0
+  }' /tmp/cx_conc.log
+  if [ $? -eq 0 ]; then ok "$desc (<= floor($n/2)=$cap concurrent)"
+  else ko "$desc" "$(awk -v cap="$cap" '{ts=$1; msg=substr($0,index($0,$3)); if(msg=="is compiling")ev[ts]++; else if(msg=="is debugging")ev[ts]--} END{n=0; for(t in ev) o[++n]=t+0; for(i=1;i<=n;i++)for(j=i+1;j<=n;j++)if(o[j]<o[i]){tmp=o[i];o[i]=o[j];o[j]=tmp} cur=0;maxc=0; for(i=1;i<=n;i++){cur+=ev[o[i]]; if(cur>maxc)maxc=cur} print "max concurrent="maxc" cap="cap}' /tmp/cx_conc.log)"
+  fi
+}
+conc_check "concurrency fifo" 6 1500 200 200 200 20 100 fifo
+conc_check "concurrency edf"  6 1500 200 200 200 20 100 edf
+
+# ===========================================================================
+# 4. BURNOUT FORZATO: l'ultima riga deve essere "burned out", nient'altro dopo. Ripetuto 40 volte.
 # ===========================================================================
 section "FORCED BURNOUT ORDERING (40x)"
 
@@ -116,7 +155,7 @@ elif [ $bad -eq 0 ]; then ok "burnout ordering 40x: burned out always last"
 else ko "burnout ordering 40x" "$bad/40 had trailing line e.g. '$badline'"; fi
 
 # ===========================================================================
-# 5. BURNOUT PRECISION: timestamp within [burnout, burnout+10] ms
+# 5. PRECISIONE DEL BURNOUT: timestamp compreso in [burnout, burnout+10] ms
 # ===========================================================================
 section "BURNOUT PRECISION"
 
@@ -133,7 +172,7 @@ if [ $prec_bad -eq 0 ]; then ok "burnout logged within [$BO,$tol_hi]ms (5 runs)"
 else ko "burnout precision" "$prec_bad/5 outside window (e.g. ${last_ts}ms)"; fi
 
 # ===========================================================================
-# 6. COMPLETION: feasible small required ends on its own, exit 0, no burnout
+# 6. COMPLETAMENTO: con un target basso e fattibile termina da solo, exit 0, no burnout
 # ===========================================================================
 section "COMPLETION"
 
@@ -141,11 +180,16 @@ timeout 6 "$BIN" 3 2000 100 100 100 2 50 fifo >/tmp/cx_done.log 2>&1; code=$?
 if [ $code -eq 124 ]; then ko "completion ends on its own" "hung"
 elif [ $code -ne 0 ]; then ko "completion exit 0" "exit=$code"
 elif grep -q "burned out" /tmp/cx_done.log; then ko "completion no burnout" "burned out appeared"
-else ok "completion: exit 0, no burnout"; fi
+else
+  ok "completion: exit 0, no burnout"
+  short=$(awk '{c[$2]++} END{for(id in c) if(c[id]<2) print id" saw only "c[id]}' <(grep "is compiling" /tmp/cx_done.log))
+  if [ -z "$short" ]; then ok "completion: every coder reached 2 compiles"
+  else ko "completion: per-coder compile count" "$short"; fi
+fi
 
 # ===========================================================================
-# 7. LOG FORMAT: every line matches grammar; each "is compiling" has two
-#    "has taken a dongle" (per id) before it (one for N=1).
+# 7. FORMATO DEL LOG: ogni riga rispetta la grammatica; ogni "is compiling" ha
+#    due "has taken a dongle" (per id) prima di sé (uno solo per N=1).
 # ===========================================================================
 section "LOG FORMAT"
 
@@ -158,8 +202,13 @@ else
   ok "every line matches grammar"
 fi
 
-# Per-id: walking each coder's own subsequence, every "is compiling" must be
-# preceded by 2 "has taken a dongle" since that coder's previous compile.
+# Monotonia globale dei timestamp: intercetta bug di interleaving su log_mutex.
+nonmono=$(awk '{if ($1+0 < prev) { print NR": "$1" after "prev; exit } prev=$1+0}' /tmp/cx_fmt.log)
+if [ -z "$nonmono" ]; then ok "timestamps non-decreasing across log"
+else ko "timestamp monotonicity" "$nonmono"; fi
+
+# Per singolo id: scorrendo la sottosequenza di ogni coder, ogni "is compiling"
+# deve essere preceduto da 2 "has taken a dongle" dall'ultima sua compilazione.
 awk '
 {
   id=$2; msg=substr($0, index($0,$3))
@@ -174,15 +223,15 @@ END { exit bad }
 if [ $? -eq 0 ]; then ok "each compile preceded by two taken (per id)"
 else ko "two-taken-per-compile" "$(head -1 /tmp/cx_fmt_err.log)"; fi
 
-# N=1 variant: one taken before (no compile expected, but assert no compile
-# ever fires without its single taken)
+# Variante N=1: un solo taken prima (nessuna compilazione attesa, ma verifichiamo
+# che non parta mai senza il suo unico taken)
 timeout 3 "$BIN" 1 400 100 100 100 9 50 fifo >/tmp/cx_fmt1.log 2>&1
 c1=$(grep -c "is compiling" /tmp/cx_fmt1.log)
 if [ "$c1" -eq 0 ]; then ok "N=1 never compiles (1 dongle)"
 else ko "N=1 never compiles" "saw $c1 compiling lines"; fi
 
 # ===========================================================================
-# 8. VALGRIND LEAK CHECK: burnout run + completion run, expect exit 0
+# 8. CONTROLLO LEAK CON VALGRIND: run di burnout + run di completamento, exit 0 atteso
 # ===========================================================================
 section "VALGRIND LEAK CHECK"
 
@@ -201,7 +250,7 @@ else
 fi
 
 # ===========================================================================
-# 9. HELGRIND: real "Possible data race" = FAIL; dubious cond = benign/info
+# 9. HELGRIND: un vero "Possible data race" = FAIL; condizioni dubbie = info/innocuo
 # ===========================================================================
 section "HELGRIND DATA RACE (informational)"
 
@@ -216,13 +265,13 @@ else
 fi
 
 # ===========================================================================
-# 10. STRESS / DEADLOCK: varied N, generous guard (slow != deadlock).
-#     Force burnout so a healthy run terminates fast; a hang = deadlock.
+# 10. STRESS / DEADLOCK: N variabile, guardia generosa (lento != deadlock).
+#     Forziamo il burnout così un run sano termina in fretta; un hang = deadlock.
 # ===========================================================================
 section "STRESS / DEADLOCK (forced-stop, hang = FAIL)"
 
 for n in 2 5 50 200; do
-  # tiny burnout guarantees the sim stops quickly if scheduling is live
+  # un burnout minuscolo garantisce che la sim si fermi in fretta se lo scheduling funziona
   timeout 8 "$BIN" "$n" 120 40 40 40 1000 30 edf >/dev/null 2>&1; code=$?
   if [ $code -eq 124 ]; then ko "stress N=$n edf" "hung (possible deadlock)"
   else ok "stress N=$n edf (exit $code)"; fi
