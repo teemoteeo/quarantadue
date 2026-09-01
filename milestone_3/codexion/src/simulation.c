@@ -14,7 +14,20 @@
 
 void	ft_usleep(long long ms)
 {
-	usleep((useconds_t)(ms * 1000));
+	struct timeval	start;
+	struct timeval	now;
+	long long		elapsed;
+
+	gettimeofday(&start, NULL);
+	while (1)
+	{
+		gettimeofday(&now, NULL);
+		elapsed = (now.tv_sec - start.tv_sec) * 1000LL
+			+ (now.tv_usec - start.tv_usec) / 1000;
+		if (elapsed >= ms)
+			break ;
+		usleep(500);
+	}
 }
 
 void	simulation_init(t_simulation *sim)
