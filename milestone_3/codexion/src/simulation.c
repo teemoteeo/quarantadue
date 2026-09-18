@@ -26,7 +26,7 @@ void	ft_usleep(long long ms)
 			+ (now.tv_usec - start.tv_usec) / 1000;
 		if (elapsed >= ms)
 			break ;
-		usleep(500); /* 500µs: evita busy-loop puro senza perdere precisione. */
+		usleep(500);
 	}
 }
 
@@ -48,7 +48,6 @@ static void	simulation_record_start(t_simulation *sim)
 	gettimeofday(&tv, NULL);
 	sim->start_time = (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 	i = 0;
-	/* Seed del timer di burnout: parte da start_time, non da quando parte il thread. */
 	while (i < sim->nb_coders)
 	{
 		sim->coders[i].last_compile_start = sim->start_time;

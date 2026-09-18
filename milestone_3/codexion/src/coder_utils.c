@@ -54,7 +54,6 @@ int	acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right)
 
 	first = left;
 	second = right;
-	/* Ordine per indice: previene il deadlock (resource ordering classico). */
 	if (c->left_dongle > c->right_dongle)
 	{
 		first = right;

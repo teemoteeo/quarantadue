@@ -21,7 +21,7 @@ static int	node_is_smaller(t_heap_node a, t_heap_node b)
 {
 	if (a.priority != b.priority)
 		return (a.priority < b.priority);
-	return (a.coder_id < b.coder_id); /* Parità: ordine per id, deterministico. */
+	return (a.coder_id < b.coder_id);
 }
 
 void	heap_init(t_sched *sq)

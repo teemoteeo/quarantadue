@@ -46,7 +46,6 @@ int	dongle_try_acquire(t_dongle *d)
 	pthread_mutex_lock(&d->mutex);
 	now = now_ms();
 	ret = 0;
-	/* Scadenza del cooldown lazy: nessun timer esterno, si controlla qui. */
 	if (d->state == DONGLE_COOLDOWN && now >= d->cooldown_until)
 		d->state = DONGLE_FREE;
 	if (d->state == DONGLE_FREE)
@@ -64,7 +63,6 @@ void	dongle_release(t_dongle *d)
 	d->state = DONGLE_COOLDOWN;
 	d->cooldown_until = now_ms() + d->sim->dongle_cooldown_ms;
 	pthread_mutex_unlock(&d->mutex);
-	/* Sveglia i coder in attesa sullo scheduler di questo dongle. */
 	pthread_mutex_lock(&d->sched.mutex);
 	pthread_cond_broadcast(&d->sched.cond);
 	pthread_mutex_unlock(&d->sched.mutex);

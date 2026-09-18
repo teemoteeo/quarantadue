@@ -58,7 +58,7 @@ static void	print_locked(t_simulation *sim, int coder_id, const char *msg)
 	while (msg[i])
 		buf[len++] = msg[i++];
 	buf[len++] = '\n';
-	write(STDOUT_FILENO, buf, len); /* write() atomico per righe brevi, niente buffering stdio. */
+	write(STDOUT_FILENO, buf, len);
 }
 
 /* Log forzato (monitor / burnout): sempre stampato. */
