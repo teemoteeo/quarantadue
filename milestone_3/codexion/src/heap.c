@@ -13,15 +13,15 @@
 #include "codexion.h"
 
 /*
- * The subject fixes a coder/dongle ring, so each dongle is contended by
- * exactly its 2 neighbours: the queue holds at most 2 entries. Keep the min
- * at index 0 with a single compare on push.
+ * Il soggetto fissa un anello coder/dongle: ogni dongle è conteso esattamente
+ * dai suoi 2 vicini, quindi la coda ha al massimo 2 elementi. Il minimo sta
+ * all'indice 0, mantenuto con un singolo confronto al push.
  */
 static int	node_is_smaller(t_heap_node a, t_heap_node b)
 {
 	if (a.priority != b.priority)
 		return (a.priority < b.priority);
-	return (a.coder_id < b.coder_id);
+	return (a.coder_id < b.coder_id); /* Parità: ordine per id, deterministico. */
 }
 
 void	heap_init(t_sched *sq)

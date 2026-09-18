@@ -1,31 +1,35 @@
-<i>This project has been created as part of the 42 curriculum by teemoteeo.</i>
+<i>Questo progetto è stato creato nell'ambito del curriculum 42 da teemoteeo.</i>
 
 # Codexion
 
-A concurrency and synchronization challenge: orchestrate multiple coders competing for limited USB dongles using POSIX threads, mutexes, condition variables, and a custom priority-queue scheduler (FIFO / EDF), while preventing deadlocks, starvation, and burnout.
+Una sfida di concorrenza e sincronizzazione: orchestrare più coder in competizione per dongle USB
+limitati usando thread POSIX, mutex, variabili di condizione e uno scheduler con coda prioritaria
+personalizzata (FIFO / EDF), prevenendo deadlock, starvation e burnout.
 
-## Description
+## Descrizione
 
-Codexion simulates coders sitting in a circular co-working hub, sharing USB dongles to compile quantum code. Each coder needs **two dongles** (left and right) to compile. After compiling, they debug, refactor, and then try to compile again — all before their burnout deadline.
+Codexion simula coder seduti in un hub circolare, che condividono dongle USB per compilare codice quantistico.
+Ogni coder ha bisogno di **due dongle** (sinistro e destro) per compilare. Dopo aver compilato, debuggano,
+refactorizzano, poi riprovano a compilare — tutto prima della scadenza di burnout.
 
-The challenge: **no coder should ever burn out**, despite:
-- Limited dongles (one between each pair of coders)
-- Dongle cooldown periods after release
-- No communication between coders
-- Two arbitration strategies: FIFO (First In, First Out) and EDF (Earliest Deadline First)
+La sfida: **nessun coder deve andare in burnout**, nonostante:
+- Dongle limitati (uno tra ogni coppia di coder)
+- Periodo di cooldown del dongle dopo il rilascio
+- Nessuna comunicazione tra i coder
+- Due strategie di arbitraggio: FIFO (First In, First Out) e EDF (Earliest Deadline First)
 
-### Concurrency Problems Solved
+### Problemi di Concorrenza Risolti
 
-| Problem | Solution |
+| Problema | Soluzione |
 |---------|----------|
-| **Mutual exclusion** | Each dongle protected by `pthread_mutex_t` |
-| **Deadlock** (Coffman: circular wait) | Ordered dongle acquisition; timeout with EDF |
-| **Starvation** | EDF guarantees bounded waiting for feasible parameters |
-| **Race conditions** | All shared state (dongles, logs) mutex-protected |
-| **Precise burnout detection** | Dedicated monitor thread with `pthread_cond_timedwait` |
-| **Log interleaving** | Serialized output via global log mutex |
+| **Mutua esclusione** | Ogni dongle protetto da `pthread_mutex_t` |
+| **Deadlock** (Coffman: attesa circolare) | Acquisizione ordinata per indice; timeout con EDF |
+| **Starvation** | EDF garantisce attesa limitata per parametri fattibili |
+| **Race condition** | Tutto lo stato condiviso (dongle, log) protetto da mutex |
+| **Rilevamento burnout preciso** | Thread monitor dedicato con `pthread_cond_timedwait` |
+| **Interleaving dei log** | Output serializzato tramite mutex log globale |
 
-### Architecture
+### Architettura
 
 ```
 ┌──────────┐  ┌──────────┐  ┌──────────┐
@@ -34,14 +38,14 @@ The challenge: **no coder should ever burn out**, despite:
 └────┬─────┘  └────┬─────┘  └────┬─────┘
      │dongle0      │dongle1      │dongle2
   ┌──┴──────────┬──┴──────────┬──┴──────┐
-  │   Dongle    │   Dongle    │ Dongle  │ ... (circular)
+  │   Dongle    │   Dongle    │ Dongle  │ ... (circolare)
   │  (mutex)    │  (mutex)    │ (mutex) │
   └─────────────┴─────────────┴─────────┘
                       │
               ┌───────┴────────┐
               │  Scheduler     │
               │  (FIFO / EDF)  │
-              │  priority q    │
+              │  coda prior.   │
               └───────┬────────┘
                       │
               ┌───────┴────────┐
@@ -50,45 +54,45 @@ The challenge: **no coder should ever burn out**, despite:
               └────────────────┘
 ```
 
-## Instructions
+## Istruzioni
 
-### Prerequisites
+### Prerequisiti
 
-- GCC or Clang with C11 support
-- POSIX threads library (`-pthread`)
+- GCC o Clang con supporto C11
+- Libreria POSIX threads (`-pthread`)
 - `make`
 
-### Compilation
+### Compilazione
 
 ```bash
 make
 ```
 
-### Usage
+### Utilizzo
 
 ```bash
-./codexion <number_of_coders> <time_to_burnout_ms> <time_to_compile_ms> \
-           <time_to_debug_ms> <time_to_refactor_ms> \
-           <number_of_compiles_required> <dongle_cooldown_ms> \
+./codexion <numero_coder> <tempo_burnout_ms> <tempo_compilazione_ms> \
+           <tempo_debug_ms> <tempo_refactor_ms> \
+           <compilazioni_richieste> <cooldown_dongle_ms> \
            <scheduler>
 ```
 
-**Arguments:**
-- `number_of_coders` — Number of coders (and dongles). Must be ≥ 1.
-- `time_to_burnout_ms` — Milliseconds before a coder burns out if not compiling.
-- `time_to_compile_ms` — Duration of compilation (holding 2 dongles).
-- `time_to_debug_ms` — Duration of debugging phase.
-- `time_to_refactor_ms` — Duration of refactoring phase.
-- `number_of_compiles_required` — Simulation stops when all coders compile this many times.
-- `dongle_cooldown_ms` — Dongle unavailable for this long after release.
-- `scheduler` — `fifo` or `edf`.
+**Argomenti:**
+- `numero_coder` — Numero di coder (e dongle). Deve essere ≥ 1.
+- `tempo_burnout_ms` — Millisecondi prima che un coder vada in burnout se non compila.
+- `tempo_compilazione_ms` — Durata della compilazione (tiene 2 dongle).
+- `tempo_debug_ms` — Durata della fase di debug.
+- `tempo_refactor_ms` — Durata della fase di refactoring.
+- `compilazioni_richieste` — La simulazione si ferma quando tutti i coder raggiungono questo numero.
+- `cooldown_dongle_ms` — Il dongle è indisponibile per questo tempo dopo il rilascio.
+- `scheduler` — `fifo` o `edf`.
 
-**Example:**
+**Esempio:**
 ```bash
 ./codexion 4 1500 200 200 200 3 100 fifo
 ```
 
-### Output Format
+### Formato Output
 
 ```
 0 1 has taken a dongle
@@ -99,114 +103,124 @@ make
 ...
 ```
 
-Each line: `<timestamp_ms> <coder_id> <message>`
+Ogni riga: `<timestamp_ms> <id_coder> <messaggio>`
 
-### Clean
+### Pulizia
 
 ```bash
 make fclean
 ```
 
-### Rules
+### Regole Make
 
 ```bash
-make        # Build the codexion binary
-make all    # Same as make
-make clean  # Remove object files
-make fclean # Remove binary and objects
-make re     # Rebuild from scratch
+make        # Compila il binario codexion
+make all    # Uguale a make
+make clean  # Rimuove i file oggetto
+make fclean # Rimuove binario e oggetti
+make re     # Ricompila da zero
 ```
 
-## Thread Synchronization Mechanisms
+## Meccanismi di Sincronizzazione dei Thread
 
-### Per-Dongle State (Mutex + Condition Variable)
+### Stato per Dongle (Mutex + Variabile di Condizione)
 
-Each dongle is protected by:
-- `pthread_mutex_t` — guards the dongle's state (available, cooldown, held-by)
-- `pthread_cond_t` — coders wait here when the dongle is unavailable
+Ogni dongle è protetto da:
+- `pthread_mutex_t` — protegge lo stato del dongle (libero, cooldown, in uso)
+- `pthread_cond_t` — i coder aspettano qui quando il dongle non è disponibile
 
-When a coder requests a dongle:
-1. Lock the dongle mutex
-2. If available → take it, signal waiting coders
-3. If in cooldown or held → `pthread_cond_wait`
-4. On wake → try to acquire again (spurious wakeup guard)
+Quando un coder richiede un dongle:
+1. Blocca il mutex del dongle
+2. Se disponibile → lo prende, segnala i coder in attesa
+3. Se in cooldown o occupato → `pthread_cond_wait`
+4. Al risveglio → riprova ad acquisire (protezione contro wakeup spuri)
 
-### Custom Priority Queue
+### Coda Prioritaria Personalizzata
 
-Neither FIFO nor EDF scheduling can use a standard library. A binary min-heap is implemented:
-- **FIFO mode**: key = arrival timestamp
-- **EDF mode**: key = `last_compile_start + time_to_burnout` (earliest deadline first)
+Né FIFO né EDF possono usare una libreria standard. È implementato un min-heap binario:
+- **Modalità FIFO**: chiave = timestamp di arrivo
+- **Modalità EDF**: chiave = `last_compile_start + time_to_burnout` (deadline più vicina prima)
 
-On equal deadlines (EDF), lower coder ID wins.
+A parità di deadline (EDF), vince il coder con id minore.
 
-### Monitor Thread
+### Thread Monitor
 
-A dedicated monitor thread runs independently:
-- Iterates through all coders at high frequency
-- For each coder, checks if `now - last_compile_start >= time_to_burnout`
-- If burnout detected: logs within 10ms, sets global stop flag, broadcasts to all condition variables
+Un thread monitor dedicato gira in modo indipendente:
+- Itera su tutti i coder ad alta frequenza
+- Per ogni coder, controlla se `now - last_compile_start >= time_to_burnout`
+- Se rileva burnout: lo registra entro 10ms, imposta il flag di stop globale, invia broadcast a tutte le variabili di condizione
 
-### Log Serialization
+### Serializzazione dei Log
 
-All output lines go through a single `pthread_mutex_t log_mutex`. The `printf` call is protected so no two messages interleave.
+Tutte le righe di output passano per un unico `pthread_mutex_t log_mutex`. La chiamata a `write` è protetta così nessun messaggio si sovrappone.
 
-## Blocking Cases Handled
+## Casi Limite Gestiti
 
-### Deadlock Prevention
+### Prevenzione Deadlock
 
-The classic deadlock scenario: Coder 1 holds dongle A, waits for B; Coder 2 holds B, waits for A.
+Scenario classico: Coder 1 tiene il dongle A, aspetta B; Coder 2 tiene B, aspetta A.
 
-**Solution**: Coders always try to acquire dongles in a consistent order (lower index first). For EDF mode, a timeout (`pthread_cond_timedwait`) prevents indefinite waiting.
+**Soluzione**: I coder acquisiscono sempre i dongle in ordine consistente (indice minore prima).
+In modalità EDF, un timeout (`pthread_cond_timedwait`) previene l'attesa indefinita.
 
-Coffman's four conditions:
-1. ✅ **Mutual exclusion** — Required (dongles are exclusive)
-2. ✅ **Hold and wait** — Coders hold one dongle while waiting for the second
-3. ❌ **No preemption** — Broken: EDF can preempt via timeout
-4. ❌ **Circular wait** — Broken: ordered acquisition (lower index first)
+Condizioni di Coffman:
+1. ✅ **Mutua esclusione** — Necessaria (i dongle sono esclusivi)
+2. ✅ **Hold and wait** — I coder tengono un dongle mentre aspettano il secondo
+3. ❌ **No preemption** — Rotta: EDF può interrompere tramite timeout
+4. ❌ **Attesa circolare** — Rotta: acquisizione ordinata (indice minore prima)
 
-### Starvation Prevention
+### Prevenzione Starvation
 
-- **FIFO**: Fair by definition — longest-waiting coder gets the dongle
-- **EDF**: Serves earliest deadline first; with feasible parameters, no coder starves. The priority queue ensures O(log n) insertion and extraction.
+- **FIFO**: Equo per definizione — il coder che aspetta da più tempo prende il dongle
+- **EDF**: Serve prima la deadline più vicina; con parametri fattibili, nessun coder muore di fame.
+La coda prioritaria garantisce inserimento ed estrazione O(log n).
 
-### Cooldown Handling
+### Gestione Cooldown
 
-After release, a dongle enters a cooldown state for `dongle_cooldown_ms`. During cooldown, the dongle reports as unavailable. The monitor tracks cooldown expiry using wall-clock time via `gettimeofday()`.
+Dopo il rilascio, un dongle entra in cooldown per `cooldown_dongle_ms`. Durante il cooldown
+risulta indisponibile. Il monitor traccia la scadenza del cooldown tramite `gettimeofday()`.
 
-## Design Decisions
+## Scelte di Design
 
-### Why Two Dongles Per Coder?
+### Perché Due Dongle per Coder?
 
-The two-dongle requirement creates a classic resource-allocation problem: each coder needs two adjacent resources, forcing coordination. With N coders and N dongles in a ring, at most ⌊N/2⌋ coders can compile simultaneously.
+Il requisito dei due dongle crea un problema classico di allocazione risorse: ogni coder ha bisogno
+di due risorse adiacenti, forzando la coordinazione. Con N coder e N dongle in anello, al massimo
+⌊N/2⌋ coder possono compilare contemporaneamente.
 
-### Why pthread_cond_timedwait for EDF?
+### Perché pthread_cond_timedwait per EDF?
 
-EDF scheduling requires the ability to time out a waiting coder if a higher-priority coder arrives. `pthread_cond_timedwait` allows a bounded wait, after which the coder re-evaluates its position.
+Lo scheduling EDF richiede la possibilità di fare timeout su un coder in attesa se arriva uno con
+priorità più alta. `pthread_cond_timedwait` permette un'attesa limitata, dopo la quale il coder
+rivaluta la sua posizione.
 
-### Why a Custom Priority Queue?
+### Perché una Coda Prioritaria Personalizzata?
 
-The subject explicitly requires implementing the priority queue (heap) without using any standard library equivalent. This ensures understanding of the underlying data structure.
+Il soggetto richiede esplicitamente di implementare la coda prioritaria (heap) senza usare
+equivalenti di libreria standard. Serve per capire la struttura dati sottostante.
 
-### Why a Monitor Thread?
+### Perché un Thread Monitor?
 
-Burnout detection must be precise (within 10ms). A separate thread polling at high frequency is simpler and more reliable than embedding detection inside each coder's cycle, which could miss a deadline if the coder is blocked on a mutex.
+Il rilevamento del burnout deve essere preciso (entro 10ms). Un thread separato che polling ad alta
+frequenza è più semplice e affidabile rispetto a incorporare il rilevamento nel ciclo di ogni coder,
+che potrebbe perdere una deadline se bloccato su un mutex.
 
-## Resources
+## Risorse
 
-- [POSIX Threads Programming](https://computing.llnl.gov/tutorials/pthreads/) — LLNL pthreads tutorial
-- [pthread_mutex_lock(3)](https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3.html) — Mutex man page
-- [pthread_cond_wait(3)](https://man7.org/linux/man-pages/man3/pthread_cond_wait.3.html) — Condition variable man page
-- [Deadlock and Coffman's Conditions](https://en.wikipedia.org/wiki/Deadlock#Coffman_conditions) — Theory of deadlock prevention
-- [Earliest Deadline First Scheduling](https://en.wikipedia.org/wiki/Earliest_deadline_first_scheduling) — EDF theory
-- [Priority Queue / Binary Heap](https://en.wikipedia.org/wiki/Binary_heap) — Heap data structure
-- [gettimeofday(2)](https://man7.org/linux/man-pages/man2/gettimeofday.2.html) — High-resolution time
+- [POSIX Threads Programming](https://computing.llnl.gov/tutorials/pthreads/) — Tutorial pthreads LLNL
+- [pthread_mutex_lock(3)](https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3.html) — Man page mutex
+- [pthread_cond_wait(3)](https://man7.org/linux/man-pages/man3/pthread_cond_wait.3.html) — Man page variabile di condizione
+- [Deadlock e Condizioni di Coffman](https://en.wikipedia.org/wiki/Deadlock#Coffman_conditions) — Teoria della prevenzione deadlock
+- [Earliest Deadline First Scheduling](https://en.wikipedia.org/wiki/Earliest_deadline_first_scheduling) — Teoria EDF
+- [Priority Queue / Binary Heap](https://en.wikipedia.org/wiki/Binary_heap) — Struttura dati heap
+- [gettimeofday(2)](https://man7.org/linux/man-pages/man2/gettimeofday.2.html) — Tempo ad alta risoluzione
 
-### AI Usage
+### Utilizzo AI
 
-AI was used for:
-- Designing the thread synchronization architecture
-- Implementing the priority queue (heap) data structure
-- Debugging race conditions and deadlock scenarios
-- Writing the monitor thread's burnout detection logic
-- Structuring the Makefile and project layout
-- Documenting concurrency patterns and edge cases
+L'AI è stata usata per:
+- Progettare l'architettura di sincronizzazione dei thread
+- Implementare la struttura dati coda prioritaria (heap)
+- Debuggare race condition e scenari di deadlock
+- Scrivere la logica di rilevamento burnout del thread monitor
+- Strutturare il Makefile e il layout del progetto
+- Documentare i pattern di concorrenza e i casi limite

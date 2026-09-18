@@ -22,6 +22,7 @@ OBJDIR		:= obj
 SRCS		:= $(SRCDIR)/main.c \
 			   $(SRCDIR)/coder.c \
 			   $(SRCDIR)/coder_utils.c \
+			   $(SRCDIR)/coder_actions.c \
 			   $(SRCDIR)/dongle.c \
 			   $(SRCDIR)/scheduler.c \
 			   $(SRCDIR)/monitor.c \

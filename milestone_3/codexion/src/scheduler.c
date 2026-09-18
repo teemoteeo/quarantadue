@@ -27,8 +27,8 @@ static void	scheduler_enqueue_locked(t_simulation *sim, t_sched *sq,
 }
 
 /*
- * Bounded wait on the per-dongle sched_cond (1 ms). Needed while the dongle
- * is in cooldown: cooldown expiry is time-based and fires no broadcast.
+ * Attesa limitata sulla sched_cond del dongle (1 ms). Necessaria mentre il
+ * dongle è in cooldown: la scadenza è basata sul tempo e non manda broadcast.
  */
 static void	scheduler_wait_short(t_sched *sq)
 {
@@ -47,8 +47,9 @@ static void	scheduler_wait_short(t_sched *sq)
 }
 
 /*
- * We are the heap root for this dongle: attempt to claim it. sq->mutex is
- * held on entry and exit. Returns 1 if claimed, 0 if busy (waits briefly).
+ * Siamo la radice dello heap per questo dongle: proviamo ad acquisirlo.
+ * sq->mutex è tenuto in entrata e in uscita. Restituisce 1 se acquisito,
+ * 0 se occupato (attende brevemente).
  */
 static int	scheduler_try_as_root(t_sched *sq, int coder_id, t_dongle *d)
 {
@@ -68,9 +69,9 @@ static int	scheduler_try_as_root(t_sched *sq, int coder_id, t_dongle *d)
 }
 
 /*
- * Block until this coder is the root of this dongle's queue and owns it.
- * Non-root coders sleep on the dongle's sched_cond. Returns 0 on success,
- * -1 if stop was requested.
+ * Blocca finché questo coder è la radice della coda del dongle e lo possiede.
+ * I coder non-radice dormono sulla sched_cond del dongle. Restituisce 0 in
+ * caso di successo, -1 se è stata richiesta la fermata.
  */
 int	scheduler_request_single(t_simulation *sim, int coder_id, t_dongle *d)
 {

@@ -13,7 +13,7 @@
 #include "codexion.h"
 #include <unistd.h>
 
-/* Append a non-negative integer to buf; returns digits written. */
+/* Aggiunge un intero non negativo a buf; restituisce le cifre scritte. */
 static int	put_ll(char *buf, long long n)
 {
 	char	tmp[24];
@@ -58,10 +58,10 @@ static void	print_locked(t_simulation *sim, int coder_id, const char *msg)
 	while (msg[i])
 		buf[len++] = msg[i++];
 	buf[len++] = '\n';
-	write(STDOUT_FILENO, buf, len);
+	write(STDOUT_FILENO, buf, len); /* write() atomico per righe brevi, niente buffering stdio. */
 }
 
-/* Forced log (monitor / burnout): always printed. */
+/* Log forzato (monitor / burnout): sempre stampato. */
 void	log_msg(t_simulation *sim, int coder_id, const char *msg)
 {
 	pthread_mutex_lock(&sim->log_mutex);
@@ -70,8 +70,8 @@ void	log_msg(t_simulation *sim, int coder_id, const char *msg)
 }
 
 /*
- * Coder state log: dropped if the simulation has already stopped, so no
- * state line can appear after the terminal "burned out" message.
+ * Log dello stato del coder: ignorato se la simulazione è già ferma, così
+ * nessuna riga di stato può apparire dopo il messaggio finale "burned out".
  */
 void	log_state(t_simulation *sim, int coder_id, const char *msg)
 {

@@ -33,8 +33,8 @@ static int	check_coder_burnout(t_simulation *sim, int i)
 }
 
 /*
- * Poll all coders for burnout. Returns:
- * 0 = still running, 1 = all done, 2 = burnout detected.
+ * Controlla tutti i coder per burnout. Restituisce:
+ * 0 = ancora in esecuzione, 1 = tutti finiti, 2 = burnout rilevato.
  */
 static int	check_all_done(t_simulation *sim)
 {
@@ -57,8 +57,8 @@ static int	check_all_done(t_simulation *sim)
 }
 
 /*
- * Raise the global stop flag and wake every coder blocked on any
- * per-dongle sched_cond so they observe the stop and unwind.
+ * Alza il flag di stop globale e sveglia ogni coder bloccato su qualsiasi
+ * sched_cond di dongle, così osservano lo stop e si liberano.
  */
 static void	signal_stop(t_simulation *sim)
 {
@@ -76,9 +76,9 @@ static void	signal_stop(t_simulation *sim)
 }
 
 /*
- * Monitor thread: polls all coders for burnout.
- * If a coder has not started compiling within time_to_burnout ms,
- * logs burnout and sets the global stop flag.
+ * Thread monitor: controlla periodicamente tutti i coder per burnout.
+ * Se un coder non ha iniziato a compilare entro time_to_burnout ms,
+ * registra il burnout e imposta il flag di stop globale.
  */
 void	*monitor_routine(void *arg)
 {

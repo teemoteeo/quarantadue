@@ -13,8 +13,9 @@
 #include "codexion.h"
 
 /*
- * Coder state and last_compile_start are shared with the monitor thread.
- * All access goes through state_mutex so reads and writes never race.
+ * Lo stato del coder e last_compile_start sono condivisi con il thread monitor.
+ * Tutti gli accessi passano per state_mutex così letture e scritture non vanno
+ * in race condition.
  */
 void	set_last_compile(t_coder *c, long long t)
 {

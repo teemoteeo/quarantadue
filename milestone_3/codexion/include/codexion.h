@@ -125,11 +125,13 @@ void		read_coder_state(t_simulation *sim, int i, t_coder_state *st,
 
 /* coder.c */
 void		*coder_routine(void *arg);
+
+/* coder_utils.c */
 int			acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right);
 int			check_stop(t_simulation *sim);
 void		set_stop(t_simulation *sim);
 
-/* coder_utils.c */
+/* coder_actions.c */
 void		coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right);
 void		coder_do_debug(t_coder *c);
 void		coder_do_refactor(t_coder *c);

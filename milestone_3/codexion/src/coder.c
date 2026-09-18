@@ -14,6 +14,7 @@
 
 static int	coder_cycle(t_coder *c, t_dongle *left, t_dongle *right)
 {
+	/* Timestamp usato dallo scheduler FIFO come priorità di coda. */
 	c->wait_since = now_ms();
 	if (acquire_both_dongles(c, left, right) != 0)
 		return (1);
@@ -44,6 +45,7 @@ void	*coder_routine(void *arg)
 	c = (t_coder *)arg;
 	left = &c->sim->dongles[c->left_dongle];
 	right = &c->sim->dongles[c->right_dongle];
+	/* Inizializza il timer di burnout da adesso, non dalla prima compilazione. */
 	set_last_compile(c, now_ms());
 	while (c->compiles_done < c->sim->compiles_required)
 	{

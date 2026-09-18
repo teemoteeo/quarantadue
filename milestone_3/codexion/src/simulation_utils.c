@@ -13,9 +13,9 @@
 #include "codexion.h"
 
 /*
- * Circular layout: coder N sits between dongle N-1 and dongle N.
- * Coder 1 sits between dongle 0 and dongle 1.
- * Coder N sits between dongle N-1 and dongle 0.
+ * Disposizione circolare: il coder N si trova tra il dongle N-1 e il dongle N.
+ * Il coder 1 si trova tra il dongle 0 e il dongle 1.
+ * Il coder N si trova tra il dongle N-1 e il dongle 0.
  */
 void	simulation_init_coders(t_simulation *sim)
 {
