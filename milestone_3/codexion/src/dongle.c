@@ -23,7 +23,7 @@ void	dongle_init(t_dongle *d, t_simulation *sim)
 	pthread_mutex_init(&d->mutex, NULL);
 	pthread_mutex_init(&d->sched.mutex, NULL);
 	pthread_cond_init(&d->sched.cond, NULL);
-	heap_init(&d->sched);
+	d->sched.size = 0;
 }
 
 void	dongle_destroy(t_dongle *d)
@@ -39,25 +39,6 @@ long long	now_ms(void)
 
 	gettimeofday(&tv, NULL);
 	return ((long long)tv.tv_sec * 1000 + tv.tv_usec / 1000);
-}
-
-int	dongle_try_acquire(t_dongle *d)
-{
-	int			ret;
-	long long	now;
-
-	pthread_mutex_lock(&d->mutex);
-	now = now_ms();
-	ret = 0;
-	if (d->state == DONGLE_COOLDOWN && now >= d->cooldown_until)
-		d->state = DONGLE_FREE;
-	if (d->state == DONGLE_FREE)
-	{
-		d->state = DONGLE_HELD;
-		ret = 1;
-	}
-	pthread_mutex_unlock(&d->mutex);
-	return (ret);
 }
 
 void	dongle_release(t_dongle *d)

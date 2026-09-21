@@ -15,22 +15,14 @@
 
 #include "codexion.h"
 
+/* Attesa attiva a passi di mezzo ms: usleep da solo sfora troppo. */
 void	ft_usleep(long long ms)
 {
-	struct timeval	start;
-	struct timeval	now;
-	long long		elapsed;
+	long long	start;
 
-	gettimeofday(&start, NULL);
-	while (1)
-	{
-		gettimeofday(&now, NULL);
-		elapsed = (now.tv_sec - start.tv_sec) * 1000LL
-			+ (now.tv_usec - start.tv_usec) / 1000;
-		if (elapsed >= ms)
-			break ;
+	start = now_ms();
+	while (now_ms() - start < ms)
 		usleep(500);
-	}
 }
 
 void	simulation_init(t_simulation *sim)
@@ -39,17 +31,14 @@ void	simulation_init(t_simulation *sim)
 	pthread_mutex_init(&sim->stop_mutex, NULL);
 	pthread_mutex_init(&sim->log_mutex, NULL);
 	pthread_mutex_init(&sim->state_mutex, NULL);
-	simulation_init_dongles(sim);
-	simulation_init_coders(sim);
+	simulation_init_state(sim);
 }
 
 static void	simulation_record_start(t_simulation *sim)
 {
-	struct timeval	tv;
-	int				i;
+	int	i;
 
-	gettimeofday(&tv, NULL);
-	sim->start_time = (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+	sim->start_time = now_ms();
 	i = 0;
 	while (i < sim->nb_coders)
 	{

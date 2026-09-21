@@ -106,14 +106,12 @@ typedef struct s_simulation
 int			parse_args(int argc, char **argv, t_simulation *sim);
 
 /* logger.c */
-long long	timestamp_ms(const t_simulation *sim);
 void		log_msg(t_simulation *sim, int coder_id, const char *msg);
 void		log_state(t_simulation *sim, int coder_id, const char *msg);
 
 /* dongle.c */
 void		dongle_init(t_dongle *d, t_simulation *sim);
 void		dongle_destroy(t_dongle *d);
-int			dongle_try_acquire(t_dongle *d);
 int			dongle_try_acquire_pair(t_dongle *a, t_dongle *b);
 void		dongle_release(t_dongle *d);
 long long	now_ms(void);
@@ -126,19 +124,15 @@ void		read_coder_state(t_simulation *sim, int i, t_coder_state *st,
 
 /* coder.c */
 void		*coder_routine(void *arg);
+void		coder_phase(t_coder *c, const char *msg, long long ms);
+void		coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right);
 
 /* coder_utils.c */
 int			acquire_both_dongles(t_coder *c, t_dongle *left, t_dongle *right);
 int			check_stop(t_simulation *sim);
 void		set_stop(t_simulation *sim);
 
-/* coder_actions.c */
-void		coder_do_compile(t_coder *c, t_dongle *left, t_dongle *right);
-void		coder_do_debug(t_coder *c);
-void		coder_do_refactor(t_coder *c);
-
 /* heap.c */
-void		heap_init(t_sched *sq);
 void		heap_push(t_sched *sq, int coder_id, long long priority);
 void		heap_remove_by_id(t_sched *sq, int coder_id);
 
@@ -157,8 +151,7 @@ void		*monitor_routine(void *arg);
 void		simulation_init(t_simulation *sim);
 void		simulation_run(t_simulation *sim);
 void		simulation_cleanup(t_simulation *sim);
-void		simulation_init_dongles(t_simulation *sim);
-void		simulation_init_coders(t_simulation *sim);
+void		simulation_init_state(t_simulation *sim);
 void		simulation_spawn_threads(t_simulation *sim);
 void		simulation_join_threads(t_simulation *sim);
 

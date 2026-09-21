@@ -11,7 +11,9 @@
 /* ************************************************************************** */
 
 /* Costruisce lo stato iniziale: assegna a ogni coder i due dongle vicini
- * nell'anello, inizializza i dongle e crea/unisce i thread. */
+ * nell'anello, inizializza i dongle e crea/unisce i thread.
+ * last_compile_start non si tocca qui: lo fissa simulation_record_start
+ * quando parte davvero il cronometro. */
 
 #include "codexion.h"
 
@@ -19,8 +21,9 @@
  * Disposizione circolare: il coder N si trova tra il dongle N-1 e il dongle N.
  * Il coder 1 si trova tra il dongle 0 e il dongle 1.
  * Il coder N si trova tra il dongle N-1 e il dongle 0.
+ * Coder e dongle si inizializzano nello stesso giro: sono tanti quanti.
  */
-void	simulation_init_coders(t_simulation *sim)
+void	simulation_init_state(t_simulation *sim)
 {
 	int	i;
 
@@ -30,21 +33,9 @@ void	simulation_init_coders(t_simulation *sim)
 		sim->coders[i].id = i + 1;
 		sim->coders[i].state = CODER_RUNNING;
 		sim->coders[i].compiles_done = 0;
-		sim->coders[i].last_compile_start = 0;
 		sim->coders[i].sim = sim;
 		sim->coders[i].left_dongle = i;
 		sim->coders[i].right_dongle = (i + 1) % sim->nb_coders;
-		i++;
-	}
-}
-
-void	simulation_init_dongles(t_simulation *sim)
-{
-	int	i;
-
-	i = 0;
-	while (i < sim->nb_coders)
-	{
 		dongle_init(&sim->dongles[i], sim);
 		i++;
 	}

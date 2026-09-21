@@ -33,8 +33,8 @@ static int	dongle_is_available(t_dongle *d, long long now)
  * I due mutex vengono presi sempre nell'ordine passato dal chiamante, che
  * e' l'ordine crescente di indice del dongle: due thread non possono quindi
  * incrociarsi e bloccarsi a vicenda qui dentro.
- * Con a == b (un solo coder, un solo dongle) si ricade sull'acquisizione
- * singola, altrimenti si bloccherebbe lo stesso mutex due volte.
+ * Con a == b (un solo coder, un solo dongle) si blocca un mutex solo:
+ * prenderlo due volte sarebbe un deadlock immediato.
  */
 int	dongle_try_acquire_pair(t_dongle *a, t_dongle *b)
 {
@@ -42,10 +42,9 @@ int	dongle_try_acquire_pair(t_dongle *a, t_dongle *b)
 	int			free_a;
 	int			free_b;
 
-	if (a == b)
-		return (dongle_try_acquire(a));
 	pthread_mutex_lock(&a->mutex);
-	pthread_mutex_lock(&b->mutex);
+	if (a != b)
+		pthread_mutex_lock(&b->mutex);
 	now = now_ms();
 	free_a = dongle_is_available(a, now);
 	free_b = dongle_is_available(b, now);
@@ -54,7 +53,8 @@ int	dongle_try_acquire_pair(t_dongle *a, t_dongle *b)
 		a->state = DONGLE_HELD;
 		b->state = DONGLE_HELD;
 	}
-	pthread_mutex_unlock(&b->mutex);
+	if (a != b)
+		pthread_mutex_unlock(&b->mutex);
 	pthread_mutex_unlock(&a->mutex);
 	return (free_a && free_b);
 }

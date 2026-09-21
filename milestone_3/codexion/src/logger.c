@@ -10,58 +10,20 @@
 /*                                                                            */
 /* ************************************************************************** */
 
-/* Log thread-safe e senza allocazioni: formatta righe "timestamp coder_id
- * messaggio" e le scrive direttamente su stdout. */
+/* Log thread-safe: ogni riga "timestamp coder_id messaggio" esce con una
+ * sola printf, tenuta sotto log_mutex così due messaggi non si mescolano. */
 
 #include "codexion.h"
-#include <unistd.h>
+#include <stdio.h>
 
-/* Aggiunge un intero non negativo a buf; restituisce le cifre scritte. */
-static int	put_ll(char *buf, long long n)
+static long long	timestamp_ms(const t_simulation *sim)
 {
-	char	tmp[24];
-	int		i;
-	int		len;
-
-	i = 0;
-	if (n <= 0)
-		tmp[i++] = '0';
-	while (n > 0)
-	{
-		tmp[i++] = (char)('0' + n % 10);
-		n /= 10;
-	}
-	len = 0;
-	while (i > 0)
-		buf[len++] = tmp[--i];
-	return (len);
-}
-
-long long	timestamp_ms(const t_simulation *sim)
-{
-	struct timeval	tv;
-	long long		now;
-
-	gettimeofday(&tv, NULL);
-	now = (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-	return (now - sim->start_time);
+	return (now_ms() - sim->start_time);
 }
 
 static void	print_locked(t_simulation *sim, int coder_id, const char *msg)
 {
-	char	buf[256];
-	int		len;
-	int		i;
-
-	len = put_ll(buf, timestamp_ms(sim));
-	buf[len++] = ' ';
-	len += put_ll(buf + len, coder_id);
-	buf[len++] = ' ';
-	i = 0;
-	while (msg[i])
-		buf[len++] = msg[i++];
-	buf[len++] = '\n';
-	write(STDOUT_FILENO, buf, len);
+	printf("%lld %d %s\n", timestamp_ms(sim), coder_id, msg);
 }
 
 /* Log forzato (monitor / burnout): sempre stampato. */

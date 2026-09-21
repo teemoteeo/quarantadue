@@ -11,33 +11,13 @@
 /* ************************************************************************** */
 
 /* Valida e converte gli 8 argomenti da riga di comando nella configurazione
- * della simulazione (numero di coder, tempi, tipo di scheduler). */
+ * della simulazione (numero di coder, tempi, tipo di scheduler).
+ * is_valid_number rifiuta non-cifre e overflow PRIMA della conversione:
+ * è quel controllo a rendere sicuro l'atoi che lo segue. */
 
 #include "codexion.h"
+#include <stdlib.h>
 #include <string.h>
-
-static int	ft_atoi(const char *s)
-{
-	long long	n;
-	int			sign;
-
-	n = 0;
-	sign = 1;
-	while (*s == ' ' || (*s >= '\t' && *s <= '\r'))
-		s++;
-	if (*s == '-' || *s == '+')
-	{
-		if (*s == '-')
-			sign = -1;
-		s++;
-	}
-	while (*s >= '0' && *s <= '9')
-	{
-		n = n * 10 + (*s - '0');
-		s++;
-	}
-	return ((int)(n * sign));
-}
 
 static int	is_valid_number(const char *s)
 {
@@ -80,13 +60,13 @@ static int	parse_and_validate(char **argv, t_simulation *sim)
 		|| !is_valid_number(argv[5]) || !is_valid_number(argv[6])
 		|| !is_valid_number(argv[7]))
 		return (1);
-	sim->nb_coders = ft_atoi(argv[1]);
-	sim->time_to_burnout = ft_atoi(argv[2]);
-	sim->time_to_compile = ft_atoi(argv[3]);
-	sim->time_to_debug = ft_atoi(argv[4]);
-	sim->time_to_refactor = ft_atoi(argv[5]);
-	sim->compiles_required = ft_atoi(argv[6]);
-	sim->dongle_cooldown_ms = ft_atoi(argv[7]);
+	sim->nb_coders = atoi(argv[1]);
+	sim->time_to_burnout = atoi(argv[2]);
+	sim->time_to_compile = atoi(argv[3]);
+	sim->time_to_debug = atoi(argv[4]);
+	sim->time_to_refactor = atoi(argv[5]);
+	sim->compiles_required = atoi(argv[6]);
+	sim->dongle_cooldown_ms = atoi(argv[7]);
 	sched = parse_scheduler(argv[8]);
 	if (sched < 0)
 		return (1);
