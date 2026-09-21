@@ -102,10 +102,13 @@ class FlyInApplication:
             print(f"parse error: {exc}", file=sys.stderr)
             return 2
 
+        # Diagnostics go to stderr so stdout carries only the movement
+        # lines the subject specifies (plus the stats block it invites).
         print(
             f"Loaded map: {map_data.nb_drones} drones, "
             f"{len(map_data.zones)} zones, "
-            f"{len(map_data.connections)} connections"
+            f"{len(map_data.connections)} connections",
+            file=sys.stderr,
         )
 
         graph = ZoneGraph(map_data)
@@ -123,7 +126,9 @@ class FlyInApplication:
             print(f"simulation error: {exc}", file=sys.stderr)
             return 4
 
-        TerminalVisualizer(enabled=self._visual).print_log(log)
+        TerminalVisualizer(graph, enabled=self._visual).print_log(
+            log, map_data.nb_drones
+        )
         SimulationReport(graph, paths, log).print(map_data.nb_drones)
         return 0
 

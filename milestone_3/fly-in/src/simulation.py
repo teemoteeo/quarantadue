@@ -47,10 +47,19 @@ class Drone:
 
 @dataclass
 class TurnLog:
-    """The set of drone movements that occurred during one simulation turn."""
+    """What happened during one simulation turn.
+
+    `movements` is the subject's output format: one `D<id>-<zone>` (or
+    `D<id>-<connection>` mid-transit) token per drone that moved.
+    `locations` is the state *after* the turn resolved — every drone's
+    zone, or its `from-to` connection while in flight — which is what
+    the visualizer needs to show zone occupancy over time.
+    """
 
     turn: int
     movements: list[str]
+    locations: dict[int, str] = field(default_factory=dict)
+    delivered: set[int] = field(default_factory=set)
 
 
 class SimulationEngine:
@@ -260,7 +269,24 @@ class SimulationEngine:
         if self.delivered_count >= self._nb_drones:
             self._completed = True
 
-        self._log.append(TurnLog(turn=self._turn, movements=movements))
+        self._log.append(
+            TurnLog(
+                turn=self._turn,
+                movements=movements,
+                locations={
+                    d.drone_id: (
+                        d.flight_connection
+                        if d.state == DroneState.IN_FLIGHT
+                        else d.position
+                    )
+                    for d in self._drones.values()
+                },
+                delivered={
+                    d.drone_id for d in self._drones.values()
+                    if d.state == DroneState.DELIVERED
+                },
+            )
+        )
         return self._completed
 
     def run(self) -> list[TurnLog]:

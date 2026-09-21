@@ -49,7 +49,7 @@ composed together by `FlyInApplication` (`src/__main__.py`):
 | `ZoneGraph` | `src/graph.py` | Adjacency list, per-zone movement cost, and capacity lookups |
 | `PathFinder` | `src/pathfinding.py` | Weighted Dijkstra and k-distinct-path search over a `ZoneGraph` |
 | `SimulationEngine` | `src/simulation.py` | Turn-by-turn movement, capacity enforcement, and deadlock detection |
-| `TerminalVisualizer` | `src/visual.py` | Renders a turn log as colored (or plain) terminal text |
+| `TerminalVisualizer` | `src/visual.py` | Renders the turn log: plain subject-format movement lines, or a colored per-turn zone-state view |
 | `SimulationReport` | `src/__main__.py` | Computes the secondary scoring metrics (path cost, avg turns/drone) |
 | `FlyInApplication` | `src/__main__.py` | Orchestrates the above and maps failures to the documented exit codes |
 
@@ -190,25 +190,59 @@ The subject explicitly forbids `networkx`, `graphlib`, etc. The entire graph rep
 
 ## Visual Representation
 
-`TerminalVisualizer` (`src/visual.py`) renders the turn log produced by
-`SimulationEngine` as ANSI-colored terminal text when `--visual` (or
-`make run VISUAL=true`) is passed, and as identical but uncolored text
-otherwise — the same rendering path is used either way, so `--visual`
-never changes *what* is shown, only whether it's colorized.
+`TerminalVisualizer` (`src/visual.py`) has two modes.
 
-- Each `D<id>-<destination>` movement token is highlighted in bold blue,
-  making it easy to visually track a single drone's progress down a
-  turn-by-turn log without reading every token.
-- Headers (`=== Fly-in Simulation ===`, the final `Total turns:` line)
-  are bolded to separate the simulation trace from the stats block that
-  follows it.
-- Turns with no drone movement print `(no movement)` instead of an
-  empty line, so a reader scanning the log can immediately tell "the
-  simulation is waiting on capacity" apart from "a turn was skipped".
+**Default — the subject's format, nothing else.** One line per turn,
+listing that turn's movements space-separated, so the output can be
+diffed or piped into a checker without stripping decoration:
 
-This keeps the enhancement lightweight (no extra dependency, works in
-any ANSI-capable terminal) while directly answering the subject's ask
-for visual feedback of drone positions and zone states over time.
+```
+D1-junction D2-junction
+D1-path_a D2-path_b D3-junction D4-junction
+D1-goal D2-goal D3-path_a D4-path_b
+D3-goal D4-goal
+```
+
+Diagnostics (`Loaded map: …`) go to stderr for the same reason.
+
+**`--visual` (or `make run VISUAL=true`) — movements plus zone state.**
+
+```
+Network: 5 zones, 4 drones
+  >start[∞]  ·junction[2]  ·path_a[1]  ·path_b[1]  #goal[∞]
+Legend: · normal  ! restricted  * priority  x blocked  > start  # end
+
+Turn   1 D1-junction D2-junction
+          >start 2/∞  ·junction 2/2
+Turn   2 D1-path_a D2-path_b D3-junction D4-junction
+          ·junction 2/2  ·path_a 1/1  ·path_b 1/1
+```
+
+What each part is for:
+
+- **The network line** shows every zone once with its glyph and its
+  capacity, so the shape of the map is visible before the run starts.
+- **The state line under each turn** lists the zones that currently
+  hold drones as `occupancy/capacity`. A zone printed as `2/2` is
+  saturated — this is what makes a bottleneck visible as it forms,
+  rather than leaving the reader to infer it from which drones stopped
+  moving.
+- **Zone colors come from the map's own `color=` metadata**, falling
+  back to a per-type palette when a zone names no color (or names one
+  outside the known table, which the subject permits). Each movement
+  token is painted the color of the zone it is heading for, so a drone
+  can be followed by color down the log.
+- **Glyphs encode zone type** (`!` restricted, `*` priority, `x`
+  blocked, `·` normal, `>` start, `#` end) so the view still reads
+  correctly when piped through a pager that drops color, or for a
+  color-blind reader.
+- **Drones in transit toward a restricted zone** appear as
+  `~origin>destination n`, distinguishing "on a connection, committed,
+  arriving next turn" from "sitting in a zone".
+- Cells wrap to the terminal width, so a 54-zone map stays readable.
+
+No extra dependency — plain ANSI, and `shutil.get_terminal_size` for
+the wrap width.
 
 ## Challenges
 
