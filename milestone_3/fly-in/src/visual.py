@@ -20,16 +20,26 @@ COLORS: dict[str, str] = {
 
 
 class TerminalVisualizer:
+    """Renders a simulation's turn log as colored terminal text.
+
+    When `enabled` is False, output is identical but plain (no ANSI
+    codes) — this keeps a single rendering path for both the
+    `--visual` and default CLI modes.
+    """
+
     def __init__(self, *, enabled: bool = True) -> None:
+        """Create a visualizer; `enabled` toggles ANSI color codes."""
         self._enabled = enabled
 
     def _color(self, name: str, text: str) -> str:
+        """Wrap `text` in the ANSI code for `name`, if coloring is enabled."""
         if not self._enabled:
             return text
         code = COLORS.get(name, "")
         return f"{code}{text}{COLORS['reset']}"
 
     def render_turn(self, turn: TurnLog) -> str:
+        """Render a single turn's movements as one display line."""
         parts = [f"Turn {turn.turn:3d}:"]
         if turn.movements:
             for move in turn.movements:
@@ -39,6 +49,7 @@ class TerminalVisualizer:
         return " ".join(parts)
 
     def render_log(self, log: list[TurnLog]) -> str:
+        """Render the full simulation log, one line per turn."""
         lines = [self._color("header", "=== Fly-in Simulation ===")]
         for turn in log:
             lines.append(self.render_turn(turn))
@@ -51,4 +62,5 @@ class TerminalVisualizer:
         return "\n".join(lines)
 
     def print_log(self, log: list[TurnLog]) -> None:
+        """Print the rendered simulation log to stdout."""
         print(self.render_log(log))

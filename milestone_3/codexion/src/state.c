@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Getter/setter thread-safe per lo stato del coder e last_compile_start:
+ * il thread monitor legge ciò che i thread coder scrivono. */
+
 #include "codexion.h"
 
 /*

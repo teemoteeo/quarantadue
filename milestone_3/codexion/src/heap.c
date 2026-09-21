@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Coda di priorità minima a 2 elementi usata dallo scheduler: al massimo due
+ * coder possono contendersi lo stesso dongle. */
+
 #include "codexion.h"
 
 /*

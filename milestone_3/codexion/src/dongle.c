@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Macchina a stati di un singolo dongle: init/destroy, try-acquire e release
+ * (che lo manda in cooldown e sveglia i coder in attesa). */
+
 #include "codexion.h"
 
 void	dongle_init(t_dongle *d, t_simulation *sim)

@@ -1,80 +1,97 @@
 === Fly-in Edge Cases ===
 
 Generated: 2026-06-04
+Re-verified mechanically: 2026-09-11 (see TEST_REPORT.md for the full
+methodology; every line below was reproduced by an actual command in
+this pass, not just read off the previous version of this file).
 
 --- PARSER EDGE CASES ---
 
-✅ Missing nb_drones — ParserError "Missing nb_drones declaration"
-✅ Missing start_hub — ParserError "Missing start_hub declaration"
-✅ Missing end_hub — ParserError "Missing end_hub declaration"
-✅ Duplicate zone name — ParserError "Duplicate zone name"
-✅ Duplicate connection (a-b and b-a) — ParserError "Duplicate connection"
-✅ Duplicate connection (same direction twice) — ParserError
-✅ Invalid zone type (zone=magical) — ParserError "Invalid zone type"
-✅ File not found — ParserError "File not found"
-✅ Negative coordinates — Accepts negative integers (valid per spec)
-✅ Comments (# prefix) — Correctly ignored
-✅ Inline comments — Correctly stripped
-✅ max_drones=0 — Rejected by pydantic validation (ge=1)
-✅ max_link_capacity=0 — Rejected by pydantic validation (ge=1)
-✅ Connection referencing undefined zone — ParserError
-✅ Unrecognised line syntax — ParserError
-✅ Whitespace-only lines — Correctly skipped
-✅ Metadata tags in any order — Correctly parsed
+[verified] Missing nb_drones — ParserError "Missing nb_drones declaration"
+[verified] Missing start_hub — ParserError "Missing start_hub declaration"
+[verified] Missing end_hub — ParserError "Missing end_hub declaration"
+[verified] Duplicate zone name — ParserError "Duplicate zone name"
+[verified] Duplicate connection (a-b and b-a) — ParserError "Duplicate connection"
+[verified] Invalid zone type (zone=magical) — ParserError "Invalid zone type"
+[verified] File not found — ParserError "File not found"
+[verified] Negative coordinates — Accepted (valid per spec)
+[verified] Comments (# prefix) and inline comments — stripped correctly
+[verified] max_drones=0 / max_link_capacity=0 — rejected, "positive integer"
+[verified] Connection referencing undefined zone — ParserError
+[verified] Unrecognised line syntax — ParserError
+[verified] Whitespace-only / blank lines — skipped
+[verified] Metadata tags in any order — parsed correctly
 
 --- GRAPH / PATHFINDING EDGE CASES ---
 
-✅ No path from start to end (disconnected) — compute_shortest_path returns None
-✅ Blocked zone in path — Correctly excluded from neighbours
-✅ Restricted zone cost — Returns 2.0 (vs 1.0 for normal)
-✅ Priority zone preference — Lower effective cost (0.99 vs 1.0), chosen in ties
-✅ Self-loop not possible — Zones must have unique names
-✅ Single-hop path — Returns 1-turn path
-✅ Multi-hop path — Returns correct N-turn path
-✅ All paths blocked — Returns None
+[verified] No path from start to end (disconnected) — shortest_path returns None
+[verified] Blocked zone in path — excluded from ZoneGraph.neighbours
+[verified] Restricted zone cost — 2.0 (vs 1.0 for normal)
+[verified] Priority zone preference — lower effective cost, chosen in ties
+[verified] Single-hop / multi-hop path — correct path and cost
+[verified] All paths blocked — returns None
 
 --- SIMULATION ENGINE EDGE CASES ---
 
-✅ Single drone — Moves straight to goal, minimal turns
-✅ Multiple drones, same path — Sequential movement when capacity=1
-✅ Multiple drones, forked paths — Distributed across both paths
-✅ Zone max_drones capacity — Drones wait when zone full
-✅ Connection max_link_capacity — Drones wait when link saturated
-✅ Drone departs frees capacity same turn — Verified with effective occupancy
-✅ Restricted zone (2-turn) transit — Drone shows connection on turn 1, zone on turn 2
-✅ Restricted zone arrival mandatory — Drone cannot wait mid-flight
-✅ End zone unlimited capacity — All drones can arrive simultaneously
-✅ Start zone unlimited capacity — All drones start together
-✅ Deadlock detection — Raises RuntimeError after 10 no-movement turns
-✅ Drones move in ID order — Deterministic output
-✅ Drones that don't move omitted from turn line — Correct output format
-✅ All delivered ends simulation — Verified
-✅ 10000-turn cap — Raises RuntimeError on excessive turns
+[verified] Single drone — moves straight to goal in minimal turns
+[verified] Two drones, single capacity-1 corridor — queue, never collide
+[verified] Two drones, forked disjoint paths — distributed, fewer turns than
+           the single-corridor case (2 vs 3 on a matched map)
+[verified] Zone max_drones capacity — drones wait when zone is full
+[FIXED, was broken] Restricted-zone capacity while a drone is in flight —
+           previously NOT enforced: two drones could both depart toward the
+           same capacity-1 restricted zone on the same turn and both land
+           on it together one turn later. Fixed by reserving the
+           destination's occupancy slot on departure instead of arrival.
+           Regression-tested in tests/test_simulation.py.
+[verified] Connection max_link_capacity — drones wait when link saturated
+[verified] Drone departs frees capacity same turn — corridor case takes 3
+           turns, not 4, confirming this
+[verified] Restricted zone (2-turn) transit — connection token on the
+           departure turn, zone token on the arrival turn
+[verified] Restricted zone arrival mandatory — no mid-flight waiting (the
+           engine forces IN_FLIGHT drones to resolve every turn)
+[verified] End zone unlimited capacity — all drones can arrive together
+[verified] Start zone unlimited capacity — all drones start together
+[verified] Deadlock detection — raises RuntimeError after 10 no-movement turns
+[verified] Drones move in ID order — deterministic output (3 repeated runs
+           of medium_01.map all report "Total turns: 8")
+[verified] Drones that don't move omitted from that turn's line
+[verified] All delivered ends simulation
+[verified] 10000-turn cap — raises RuntimeError on excessive turns
 
---- PERFORMANCE VERIFICATION ---
+--- PERFORMANCE VERIFICATION (provided maps) ---
 
-✅ easy_01 (linear, 2 drones): 4 turns (target ≤6)
-✅ easy_02 (fork, 4 drones):   7 turns (target ≤8)
-✅ easy_03 (capacity, 4):      5 turns (target ≤6)
-✅ medium_01 (dead end, 5):    8 turns (target ≤12)
-✅ medium_02 (circular, 6):    4 turns (target ≤15)
-✅ medium_03 (priority, 5):    7 turns (target ≤12)
-✅ hard_01 (maze, 8):          17 turns (target ≤30)
-✅ hard_02 (capacity, 12):     14 turns (target ≤35)
+[verified] easy_01   (2 drones):  4 turns
+[verified] easy_02   (4 drones):  7 turns
+[verified] easy_03   (4 drones):  5 turns
+[verified] medium_01 (5 drones):  8 turns
+[verified] medium_02 (6 drones):  4 turns
+[verified] medium_03 (5 drones):  7 turns
+[verified] hard_01   (8 drones):  17 turns (target <=30)
+[verified] hard_02   (12 drones): 14 turns (target <=35)
+[verified] 50-drone stress run on a modified hard_01.map: 73 turns, no
+           timeout, no traceback
 
 --- SUBJECT COMPLIANCE ---
 
-✅ Python 3.10+
-✅ flake8 coding standard
-✅ Type hints + mypy (strict config)
-✅ Docstrings (PEP 257)
-✅ Makefile with install/run/debug/clean/lint/lint-strict
-✅ pydantic for validation
-✅ No forbidden libraries (networkx, graphlib, etc.)
-✅ Fully OOP (classes for graph, simulation, visualizer, parser)
-✅ Exception handling (try-except, custom errors)
-✅ Context managers for file resources
-✅ .gitignore present
-✅ No graph libraries used
-✅ Visual representation (colored terminal output)
-✅ README.md with all required sections
+[verified] Python 3.10+
+[verified] flake8 coding standard — now actually enforced (`.flake8` added;
+           the pyproject.toml [tool.flake8] block alone was not read by
+           plain flake8 and `make lint` previously failed outright because
+           tests/ didn't exist)
+[verified] Type hints + mypy --strict clean on src/ and tests/
+[verified] Docstrings (PEP 257) on all public classes/methods
+[verified] Makefile: install/run/debug/clean/lint/lint-strict/test all work
+[verified] No forbidden graph libraries (networkx, graphlib, etc.)
+[verified] Fully OOP — parser, pathfinding, and the CLI entry point are now
+           classes (MapParser, PathFinder, FlyInApplication,
+           SimulationReport), alongside the pre-existing ZoneGraph,
+           SimulationEngine, TerminalVisualizer
+[verified] Exception handling (ParserError, ValueError, RuntimeError mapped
+           to distinct exit codes)
+[verified] .gitignore present
+[verified] Visual representation (colored terminal output, documented in
+           README.md's Visual Representation section)
+[verified] README.md with all required sections, correct italic first line
+[verified] tests/ directory with 37 pytest tests covering the cases above

@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Loop principale del coder: prende entrambi i dongle, poi compila/debugga/
+ * refattorizza finché non raggiunge il numero di compile richiesto. */
+
 #include "codexion.h"
 
 static int	coder_cycle(t_coder *c, t_dongle *left, t_dongle *right)

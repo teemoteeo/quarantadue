@@ -25,6 +25,7 @@ class ZoneGraph:
     """
 
     def __init__(self, map_file: MapFile) -> None:
+        """Build the bidirectional adjacency list from a parsed map."""
         self._map_start = map_file.start
         self._map_end = map_file.end
         self._zones: dict[str, Zone] = dict(map_file.zones)
@@ -41,6 +42,7 @@ class ZoneGraph:
     def _build_adjacency(
         connections: list[Connection],
     ) -> dict[str, list[tuple[str, Connection]]]:
+        """Expand each connection into both directed adjacency entries."""
         adj: dict[str, list[tuple[str, Connection]]] = defaultdict(list)
         for conn in connections:
             adj[conn.from_zone].append((conn.to_zone, conn))
@@ -55,6 +57,7 @@ class ZoneGraph:
 
     @property
     def zones(self) -> dict[str, Zone]:
+        """All zones in the network, keyed by name."""
         return self._zones
 
     def neighbours(self, zone_name: str) -> list[tuple[str, float, int]]:
@@ -74,24 +77,28 @@ class ZoneGraph:
         return results
 
     def zone_type(self, name: str) -> ZoneType:
+        """Return the zone type for `name`, defaulting to normal."""
         zone = self._zones.get(name)
         if zone is None:
             return "normal"
         return zone.metadata.zone
 
     def zone_capacity(self, name: str) -> int:
+        """Return the max simultaneous drones allowed in zone `name`."""
         zone = self._zones.get(name)
         if zone is None:
             return 0
         return zone.metadata.max_drones
 
     def zone_color(self, name: str) -> str | None:
+        """Return the display color configured for zone `name`, if any."""
         zone = self._zones.get(name)
         if zone is None:
             return None
         return zone.metadata.color
 
     def connection_capacity(self, a: str, b: str) -> int:
+        """Return the max simultaneous drones allowed on connection a-b."""
         key = (min(a, b), max(a, b))
         conn = self._conn_metadata.get(key)
         if conn is None:
@@ -100,8 +107,10 @@ class ZoneGraph:
 
     @property
     def start_name(self) -> str:
+        """Name of the map's unique start zone."""
         return self._map_start.name
 
     @property
     def end_name(self) -> str:
+        """Name of the map's unique end zone."""
         return self._map_end.name

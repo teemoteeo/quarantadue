@@ -1,4 +1,4 @@
-<i>This project has been created as part of the 42 curriculum by teemoteeo.</i>
+*This project has been created as part of the 42 curriculum by teemoteeo.*
 
 # Fly-in
 
@@ -37,6 +37,28 @@ The simulation uses a **turn-based discrete-event engine** backed by a pathfindi
 - Deadlock detection and strategic waiting
 - Colored terminal visualization
 - Performance scoring (total turns, average turns per drone, path cost)
+
+### Object-Oriented Architecture
+
+Every stage of the pipeline is a class with a single responsibility,
+composed together by `FlyInApplication` (`src/__main__.py`):
+
+| Class | File | Responsibility |
+|-------|------|-----------------|
+| `MapParser` | `src/parser.py` | Line-by-line grammar, metadata validation, and semantic checks (uniqueness, referential integrity) |
+| `ZoneGraph` | `src/graph.py` | Adjacency list, per-zone movement cost, and capacity lookups |
+| `PathFinder` | `src/pathfinding.py` | Weighted Dijkstra and k-distinct-path search over a `ZoneGraph` |
+| `SimulationEngine` | `src/simulation.py` | Turn-by-turn movement, capacity enforcement, and deadlock detection |
+| `TerminalVisualizer` | `src/visual.py` | Renders a turn log as colored (or plain) terminal text |
+| `SimulationReport` | `src/__main__.py` | Computes the secondary scoring metrics (path cost, avg turns/drone) |
+| `FlyInApplication` | `src/__main__.py` | Orchestrates the above and maps failures to the documented exit codes |
+
+`ParserError` is a small custom exception carrying the offending line
+number, and `Drone`/`TurnLog` (in `src/simulation.py`) are dataclasses
+holding per-drone and per-turn state. No module-level business logic
+lives outside a class — the only free functions are the CLI's
+`main()`/`_parse_args()`, the conventional thin entry point for a
+Python script.
 
 ## Instructions
 
@@ -166,6 +188,28 @@ Shortest paths are computed once per drone (or cached and re-evaluated on capaci
 
 The subject explicitly forbids `networkx`, `graphlib`, etc. The entire graph representation and traversal is implemented from scratch using adjacency lists and priority queues, ensuring full control and understanding.
 
+## Visual Representation
+
+`TerminalVisualizer` (`src/visual.py`) renders the turn log produced by
+`SimulationEngine` as ANSI-colored terminal text when `--visual` (or
+`make run VISUAL=true`) is passed, and as identical but uncolored text
+otherwise — the same rendering path is used either way, so `--visual`
+never changes *what* is shown, only whether it's colorized.
+
+- Each `D<id>-<destination>` movement token is highlighted in bold blue,
+  making it easy to visually track a single drone's progress down a
+  turn-by-turn log without reading every token.
+- Headers (`=== Fly-in Simulation ===`, the final `Total turns:` line)
+  are bolded to separate the simulation trace from the stats block that
+  follows it.
+- Turns with no drone movement print `(no movement)` instead of an
+  empty line, so a reader scanning the log can immediately tell "the
+  simulation is waiting on capacity" apart from "a turn was skipped".
+
+This keeps the enhancement lightweight (no extra dependency, works in
+any ANSI-capable terminal) while directly answering the subject's ask
+for visual feedback of drone positions and zone states over time.
+
 ## Challenges
 
 ### Restricted Zone Transit
@@ -182,11 +226,26 @@ Recomputing paths when capacity fills up adds complexity. The implementation may
 
 ## Testing Strategy
 
-- **Parser tests**: Valid/invalid map files, all zone types, edge cases (missing start/end, duplicate names, invalid metadata)
-- **Pathfinding tests**: Known graphs with verified optimal paths for each zone type combination
-- **Simulation tests**: Small maps with 2-5 drones, verifying turn counts match expected minimums
-- **Capacity tests**: Maps designed to force waiting behavior
-- **Visual tests**: Manual verification of colored output
+`tests/` (run via `make test`) covers:
+
+- **Parser tests** (`test_parser.py`): valid maps, all zone types, every
+  documented error path (missing declarations, duplicate zones/connections,
+  invalid zone type, undefined zone reference, non-positive capacities,
+  unrecognised syntax, missing file).
+- **Graph tests** (`test_graph.py`): per-type movement cost, blocked-zone
+  exclusion, priority tie-break, capacity lookups.
+- **Pathfinding tests** (`test_pathfinding.py`): shortest path on a known
+  line graph, no-path detection, k-distinct-path search on a fork.
+- **Simulation tests** (`test_simulation.py`): straight-line turn count,
+  capacity-1 corridor queueing without collision, fork-vs-corridor
+  throughput, restricted-zone in-flight notation and timing, determinism
+  across repeated runs, and a regression test for a fixed bug where a
+  restricted zone's capacity wasn't reserved until arrival (letting two
+  drones land on a capacity-1 zone on the same turn).
+- **CLI tests** (`test_cli.py`): the exit-code contract (0/1/2/3) end to end.
+
+Manual checks (visual mode, the 8 provided maps, a 50-drone stress run)
+are documented in `DEBUG_TEST_PLAN.md` / `TEST_REPORT.md`.
 
 ## Resources
 
@@ -200,7 +259,16 @@ Recomputing paths when capacity fills up adds complexity. The implementation may
 
 AI was used for:
 - Designing the graph data structures and pathfinding algorithm architecture
-- Debugging simulation turn mechanics and capacity constraint logic
+- Debugging simulation turn mechanics and capacity constraint logic, including
+  finding and fixing a real bug where a restricted zone's capacity was only
+  reserved on arrival instead of on departure, letting two drones land on a
+  capacity-1 restricted zone on the same turn
+- Refactoring the parser, pathfinding, and CLI entry point from free functions
+  into single-responsibility classes (`MapParser`, `PathFinder`,
+  `FlyInApplication`, `SimulationReport`) to satisfy the subject's
+  fully-object-oriented requirement
+- Writing the `tests/` pytest suite (parser, graph, pathfinding, simulation,
+  CLI exit codes) covering the edge cases called out in the subject
 - Generating example map files for testing
 - Reviewing code for PEP 8 compliance and mypy type safety
 - Structuring the project and README documentation

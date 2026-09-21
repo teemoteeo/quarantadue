@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Livello di fairness: ogni dongle ha una piccola coda di priorità (FIFO o
+ * EDF) così i coder si alternano invece di andare in starvation. */
+
 #include "codexion.h"
 #include <time.h>
 

@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Valida e converte gli 8 argomenti da riga di comando nella configurazione
+ * della simulazione (numero di coder, tempi, tipo di scheduler). */
+
 #include "codexion.h"
 #include <string.h>
 

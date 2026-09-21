@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Costruisce lo stato iniziale: assegna a ogni coder i due dongle vicini
+ * nell'anello, inizializza i dongle e crea/unisce i thread. */
+
 #include "codexion.h"
 
 /*

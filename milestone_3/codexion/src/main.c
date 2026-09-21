@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Entry point: valida gli argomenti da riga di comando, poi esegue l'intero
+ * ciclo di vita della simulazione. */
+
 #include "codexion.h"
 #include <stdlib.h>
 #include <stdio.h>

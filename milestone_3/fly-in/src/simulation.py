@@ -26,6 +26,8 @@ from .schemas import MapFile
 
 
 class DroneState(Enum):
+    """Lifecycle state of a single drone within the simulation."""
+
     WAITING = auto()    # at a zone, ready to move
     IN_FLIGHT = auto()  # in transit to restricted zone, arrives next turn
     DELIVERED = auto()  # reached end zone
@@ -33,6 +35,8 @@ class DroneState(Enum):
 
 @dataclass
 class Drone:
+    """Mutable runtime state for one drone as it traverses its path."""
+
     drone_id: int
     position: str
     state: DroneState = DroneState.WAITING
@@ -43,17 +47,32 @@ class Drone:
 
 @dataclass
 class TurnLog:
+    """The set of drone movements that occurred during one simulation turn."""
+
     turn: int
     movements: list[str]
 
 
 class SimulationEngine:
+    """Turn-based engine that replays drone paths under capacity rules.
+
+    Given a parsed map and one path per drone, advances the simulation
+    turn by turn (see :meth:`step`), enforcing zone and connection
+    capacity, restricted-zone transit timing, and deadlock detection.
+    """
 
     def __init__(
         self,
         map_file: MapFile,
         drone_paths: list[list[str]],
     ) -> None:
+        """Initialise per-zone capacity/occupancy state and place drones.
+
+        Args:
+            map_file: The parsed map describing zones and connections.
+            drone_paths: One precomputed route per drone, each starting
+                at the map's start zone.
+        """
         self._nb_drones = map_file.nb_drones
         self._start_name = map_file.start.name
         self._end_name = map_file.end.name
@@ -98,21 +117,33 @@ class SimulationEngine:
 
     @staticmethod
     def _link_key(a: str, b: str) -> tuple[str, str]:
+        """Return a direction-independent key identifying a connection."""
         return (min(a, b), max(a, b))
 
     @property
     def turn(self) -> int:
+        """The number of turns simulated so far."""
         return self._turn
 
     @property
     def delivered_count(self) -> int:
+        """How many drones have reached the end zone."""
         return sum(
             1 for d in self._drones.values()
             if d.state == DroneState.DELIVERED
         )
 
     def step(self) -> bool:
-        """Advance one simulation turn. Returns True if simulation complete."""
+        """Advance one simulation turn. Returns True if simulation complete.
+
+        Zone capacity for a restricted-zone destination is reserved the
+        moment a drone departs toward it (when it becomes IN_FLIGHT), not
+        when it physically arrives two turns later. Without this
+        reservation, several drones could depart toward the same
+        capacity-limited restricted zone on the same turn and all arrive
+        together next turn, exceeding its max_drones — the reservation
+        below is what prevents that.
+        """
         if self._completed:
             return True
 
@@ -125,16 +156,16 @@ class SimulationEngine:
         conn_usage: dict[tuple[str, str], int] = defaultdict(int)
 
         # === Phase 1: IN_FLIGHT drones MUST arrive this turn ===
+        # Their destination capacity was already reserved when they departed
+        # (see Phase 2), and their origin zone was already freed at that
+        # same time, so this phase only updates position/state — it must
+        # not touch occupancy again.
         arrived_this_turn: set[int] = set()
-        for drone in self._drones.values():
+        for drone in sorted(self._drones.values(), key=lambda d: d.drone_id):
             if drone.state != DroneState.IN_FLIGHT:
                 continue
 
             next_pos = drone.path[drone.path_index]
-            departures[drone.position] += 1
-            self._zone_occupancy[next_pos] = (
-                self._zone_occupancy.get(next_pos, 0) + 1
-            )
             drone.position = next_pos
             drone.path_index += 1
             drone.flight_connection = ""
@@ -145,15 +176,6 @@ class SimulationEngine:
                 drone.state = DroneState.WAITING
                 arrived_this_turn.add(drone.drone_id)
             movements.append(f"D{drone.drone_id}-{next_pos}")
-
-        # Apply departures from Phase 1
-        for zone_name, count in departures.items():
-            self._zone_occupancy[zone_name] = max(
-                0, self._zone_occupancy.get(zone_name, 0) - count
-            )
-
-        # Reset departures for Phase 2 tracking
-        departures.clear()
 
         # === Phase 2: WAITING drones attempt to move ===
         # Process in drone ID order for determinism
@@ -187,9 +209,19 @@ class SimulationEngine:
 
             conn_usage[link_key] += 1
             departures[drone.position] += 1
+            # Reserve the destination slot immediately so any other drone
+            # evaluated later this same phase sees accurate occupancy —
+            # this applies to restricted destinations too, since without
+            # it multiple drones could depart toward the same
+            # capacity-limited restricted zone on the same turn.
+            self._zone_occupancy[next_pos] = (
+                self._zone_occupancy.get(next_pos, 0) + 1
+            )
 
             if dest_type == "restricted":
-                # 2-turn move: start transit, arrive next turn
+                # 2-turn move: start transit, arrive next turn.
+                # `position` intentionally stays at the origin zone until
+                # Phase 1 of the next turn resolves the arrival.
                 drone.state = DroneState.IN_FLIGHT
                 drone.flight_connection = \
                     f"{drone.position}-{next_pos}"
@@ -197,9 +229,6 @@ class SimulationEngine:
                                  f"{drone.flight_connection}")
             else:
                 # 1-turn move: arrive immediately
-                self._zone_occupancy[next_pos] = (
-                    self._zone_occupancy.get(next_pos, 0) + 1
-                )
                 drone.position = next_pos
                 drone.path_index += 1
                 if next_pos == self._end_name:
@@ -235,6 +264,15 @@ class SimulationEngine:
         return self._completed
 
     def run(self) -> list[TurnLog]:
+        """Step the simulation until all drones are delivered.
+
+        Returns:
+            The full per-turn movement log.
+
+        Raises:
+            RuntimeError: On a persistent deadlock, or if the simulation
+                exceeds a sanity-check turn cap.
+        """
         max_turns = 10000
         while not self._completed:
             self.step()

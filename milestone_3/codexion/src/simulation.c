@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Ciclo di vita della simulazione: inizializza i mutex, registra il tempo di
+ * partenza, crea e unisce tutti i thread e alla fine libera le risorse. */
+
 #include "codexion.h"
 
 void	ft_usleep(long long ms)

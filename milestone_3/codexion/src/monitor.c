@@ -10,6 +10,10 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Thread watchdog: controlla il burnout di tutti i coder (fermi troppo a
+ * lungo) e, se lo trova (o se hanno finito tutti), alza il flag di stop
+ * globale e sveglia chi è in attesa. */
+
 #include "codexion.h"
 
 static int	check_coder_burnout(t_simulation *sim, int i)

@@ -10,6 +10,9 @@
 /*                                                                            */
 /* ************************************************************************** */
 
+/* Log thread-safe e senza allocazioni: formatta righe "timestamp coder_id
+ * messaggio" e le scrive direttamente su stdout. */
+
 #include "codexion.h"
 #include <unistd.h>
 
