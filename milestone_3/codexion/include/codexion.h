@@ -114,6 +114,7 @@ void		log_state(t_simulation *sim, int coder_id, const char *msg);
 void		dongle_init(t_dongle *d, t_simulation *sim);
 void		dongle_destroy(t_dongle *d);
 int			dongle_try_acquire(t_dongle *d);
+int			dongle_try_acquire_pair(t_dongle *a, t_dongle *b);
 void		dongle_release(t_dongle *d);
 long long	now_ms(void);
 
@@ -142,8 +143,12 @@ void		heap_push(t_sched *sq, int coder_id, long long priority);
 void		heap_remove_by_id(t_sched *sq, int coder_id);
 
 /* scheduler.c */
-int			scheduler_request_single(t_simulation *sim, int coder_id,
-				t_dongle *d);
+void		scheduler_enqueue(t_simulation *sim, t_sched *sq, int coder_id);
+void		scheduler_dequeue(t_sched *sq, int coder_id);
+int			scheduler_may_take(t_sched *sq, int coder_id);
+void		scheduler_wait_short(t_sched *sq);
+int			scheduler_request_pair(t_simulation *sim, int coder_id,
+				t_dongle *d1, t_dongle *d2);
 
 /* monitor.c */
 void		*monitor_routine(void *arg);

@@ -18,7 +18,9 @@
 /*
  * Il soggetto fissa un anello coder/dongle: ogni dongle è conteso esattamente
  * dai suoi 2 vicini, quindi la coda ha al massimo 2 elementi. Il minimo sta
- * all'indice 0, mantenuto con un singolo confronto al push.
+ * all'indice 0, mantenuto con un singolo confronto al push. La guardia su
+ * size in heap_push è difensiva: con questa topologia non può scattare, ma
+ * l'array è a dimensione fissa e nessuna scrittura deve poterlo superare.
  */
 static int	node_is_smaller(t_heap_node a, t_heap_node b)
 {
@@ -36,6 +38,8 @@ void	heap_push(t_sched *sq, int coder_id, long long priority)
 {
 	t_heap_node	node;
 
+	if (sq->size >= 2)
+		return ;
 	node.coder_id = coder_id;
 	node.priority = priority;
 	if (sq->size == 0 || node_is_smaller(sq->queue[0], node))

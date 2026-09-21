@@ -24,7 +24,9 @@ SRCS		:= $(SRCDIR)/main.c \
 			   $(SRCDIR)/coder_utils.c \
 			   $(SRCDIR)/coder_actions.c \
 			   $(SRCDIR)/dongle.c \
+			   $(SRCDIR)/dongle_pair.c \
 			   $(SRCDIR)/scheduler.c \
+			   $(SRCDIR)/scheduler_pair.c \
 			   $(SRCDIR)/monitor.c \
 			   $(SRCDIR)/logger.c \
 			   $(SRCDIR)/heap.c \
