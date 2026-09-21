@@ -13,6 +13,7 @@ CODE_REVIEW.md
 DEBUG_TEST_PLAN.md
 edge_cases.txt
 handoff.md
+*.sh
 
 # IDE / tooling
 .vscode/
