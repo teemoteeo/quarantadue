@@ -89,7 +89,7 @@ class FlyInApplication:
 
     def run(self) -> int:
         """Execute the full pipeline and return the process exit code."""
-        if not self._map_path.exists():
+        if not self._map_path.is_file():
             print(
                 f"error: map file not found: {self._map_path}",
                 file=sys.stderr,

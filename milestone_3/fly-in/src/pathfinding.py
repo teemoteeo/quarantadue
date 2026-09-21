@@ -121,7 +121,7 @@ class PathFinder:
             if current == end:
                 return path, dist
 
-            for neighbour, weight, _capacity in self._graph.neighbours(current):
+            for neighbour, weight, _cap in self._graph.neighbours(current):
                 if (current, neighbour) in blocked or \
                    (neighbour, current) in blocked:
                     continue

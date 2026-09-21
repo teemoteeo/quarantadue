@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any, Pattern
 
+from pydantic import ValidationError
+
 from .schemas import (
     Connection,
     ConnectionMetadata,
@@ -33,7 +35,12 @@ class MapParser:
     :meth:`parse`.
     """
 
-    _VALID_ZONE_TYPES: set[str] = {"normal", "blocked", "restricted", "priority"}
+    _VALID_ZONE_TYPES: set[str] = {
+        "normal", "blocked", "restricted", "priority"
+    }
+
+    _ZONE_META_KEYS: set[str] = {"zone", "color", "max_drones"}
+    _CONN_META_KEYS: set[str] = {"max_link_capacity"}
 
     _RE_NB_DRONES: Pattern[str] = re.compile(r"^nb_drones:\s*(\d+)$")
     _RE_START: Pattern[str] = re.compile(
@@ -72,12 +79,17 @@ class MapParser:
                 syntax or semantics.
         """
         self._reset()
-        if not path.exists():
+        if not path.is_file():
             raise ParserError(0, f"File not found: {path}")
 
-        with path.open("r", encoding="utf-8") as handle:
-            for line_no, raw_line in enumerate(handle, start=1):
-                self._parse_line(line_no, raw_line)
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line_no, raw_line in enumerate(handle, start=1):
+                    self._parse_line(line_no, raw_line)
+        except OSError as exc:
+            raise ParserError(0, f"Cannot read {path}: {exc.strerror}")
+        except UnicodeDecodeError:
+            raise ParserError(0, f"{path} is not valid UTF-8 text")
 
         return self._finalize()
 
@@ -114,7 +126,13 @@ class MapParser:
             return False
         if self._nb_drones is not None:
             raise ParserError(line_no, "Duplicate nb_drones declaration")
-        self._nb_drones = int(match.group(1))
+        count = int(match.group(1))
+        if count < 1:
+            raise ParserError(
+                line_no,
+                f"nb_drones must be a positive integer, got {count}",
+            )
+        self._nb_drones = count
         return True
 
     def _try_start(self, line_no: int, line: str) -> bool:
@@ -159,7 +177,9 @@ class MapParser:
         if pair in self._conn_pairs:
             raise ParserError(line_no, f"Duplicate connection: {a}-{b}")
         self._conn_pairs.add(pair)
-        meta_raw = self._parse_metadata(match.group(3) or "")
+        meta_raw = self._parse_metadata(
+            line_no, match.group(3) or "", self._CONN_META_KEYS
+        )
         conn = Connection(
             from_zone=a,
             to_zone=b,
@@ -171,8 +191,16 @@ class MapParser:
     def _build_zone(self, line_no: int, match: "re.Match[str]") -> Zone:
         """Build a `Zone` from a start_hub/end_hub/hub regex match."""
         name = match.group(1)
+        if "-" in name:
+            # The connection syntax is `<zone1>-<zone2>`, so a dash in a
+            # zone name would make connection lines ambiguous.
+            raise ParserError(
+                line_no, f"Zone name may not contain a dash: {name!r}"
+            )
         x, y = int(match.group(2)), int(match.group(3))
-        meta_raw = self._parse_metadata(match.group(4) or "")
+        meta_raw = self._parse_metadata(
+            line_no, match.group(4) or "", self._ZONE_META_KEYS
+        )
         return Zone(
             name=name,
             x=x,
@@ -181,18 +209,38 @@ class MapParser:
         )
 
     @staticmethod
-    def _parse_metadata(raw: str) -> dict[str, str]:
+    def _parse_metadata(
+        line_no: int, raw: str, allowed: set[str]
+    ) -> dict[str, str]:
         """Extract key=value pairs from a bracket-enclosed metadata string.
 
         Example: '[zone=restricted color=red max_drones=2]' ->
                  {'zone': 'restricted', 'color': 'red', 'max_drones': '2'}
+
+        Raises:
+            ParserError: On a token that is not `key=value`, an unknown
+                key, or a repeated key. The subject requires metadata
+                blocks to be syntactically valid, so an unrecognised tag
+                is an error rather than something to ignore.
         """
         inner = raw.strip("[]")
         result: dict[str, str] = {}
         for part in inner.split():
-            if "=" not in part:
-                continue
-            key, _, value = part.partition("=")
+            key, sep, value = part.partition("=")
+            if not sep or not key or not value:
+                raise ParserError(
+                    line_no, f"Malformed metadata tag: {part!r}"
+                )
+            if key not in allowed:
+                raise ParserError(
+                    line_no,
+                    f"Unknown metadata key: {key!r} "
+                    f"(expected one of {', '.join(sorted(allowed))})",
+                )
+            if key in result:
+                raise ParserError(
+                    line_no, f"Duplicate metadata key: {key!r}"
+                )
             result[key] = value
         return result
 
@@ -259,10 +307,16 @@ class MapParser:
                     f"Connection references unknown zone: {conn.to_zone!r}",
                 )
 
-        return MapFile(
-            nb_drones=self._nb_drones,
-            start=self._start,
-            end=self._end,
-            zones=self._zones,
-            connections=self._connections,
-        )
+        try:
+            return MapFile(
+                nb_drones=self._nb_drones,
+                start=self._start,
+                end=self._end,
+                zones=self._zones,
+                connections=self._connections,
+            )
+        except ValidationError as exc:
+            # Every field is checked above with a line number attached, so
+            # reaching here means a schema rule the line grammar doesn't
+            # cover. Report it as a parse error rather than a traceback.
+            raise ParserError(0, f"Invalid map: {exc.errors()[0]['msg']}")

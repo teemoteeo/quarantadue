@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by teemoteeo.*
+*This project has been created as part of the 42 curriculum by tcostant.*
 
 # Fly-in
 
@@ -80,21 +80,21 @@ uv sync
 Run the simulation with a map file:
 
 ```bash
-make run MAP=data/maps/easy_01.map
+make run MAP=maps/easy/01_linear_path.txt
 # or
-uv run python -m src data/maps/easy_01.map
+uv run python -m src maps/easy/01_linear_path.txt
 ```
 
 Run with visual output (colored terminal):
 
 ```bash
-make run MAP=data/maps/easy_01.map VISUAL=true
+make run MAP=maps/easy/01_linear_path.txt VISUAL=true
 ```
 
 ### Debug Mode
 
 ```bash
-make debug MAP=data/maps/easy_01.map
+make debug MAP=maps/easy/01_linear_path.txt
 ```
 
 ### Linting
@@ -102,14 +102,6 @@ make debug MAP=data/maps/easy_01.map
 ```bash
 make lint       # flake8 + mypy (standard)
 make lint-strict # flake8 + mypy --strict
-```
-
-### Testing
-
-```bash
-make test
-# or
-uv run pytest tests/ -v
 ```
 
 ### Clean
@@ -161,18 +153,26 @@ Paths are computed independently for each drone in priority order, with the simu
 
 ### Performance Benchmarks
 
-| Difficulty | Map | Drones | Target (turns) |
-|------------|-----|--------|----------------|
-| Easy | Linear path | 2 | ≤ 6 |
-| Easy | Simple fork | 4 | ≤ 8 |
-| Easy | Basic capacity | 4 | ≤ 6 |
-| Medium | Dead end trap | 5 | ≤ 12 |
-| Medium | Circular loop | 6 | ≤ 15 |
-| Medium | Priority puzzle | 5 | ≤ 12 |
-| Hard | Maze nightmare | 8 | ≤ 30 |
-| Hard | Capacity hell | 12 | ≤ 35 |
-| Hard | Ultimate challenge | 15 | ≤ 45 |
-| Challenger | The Impossible Dream | 25 | < 45 |
+Measured on the maps shipped with the subject, in `maps/`. Every run
+exits 0 and every turn log passes an independent adjacency/capacity
+replay check.
+
+| Difficulty | Map | Drones | Target (turns) | Result |
+|------------|-----|--------|----------------|--------|
+| Easy | Linear path | 2 | ≤ 6 | **4** |
+| Easy | Simple fork | 4 | ≤ 8 | **4** |
+| Easy | Basic capacity | 4 | ≤ 6 | **4** |
+| Medium | Dead end trap | 5 | ≤ 12 | **8** |
+| Medium | Circular loop | 6 | ≤ 15 | **15** |
+| Medium | Priority puzzle | 5 | ≤ 12 | **7** |
+| Hard | Maze nightmare | 8 | ≤ 30 | **13** |
+| Hard | Capacity hell | 12 | ≤ 35 | **16** |
+| Hard | Ultimate challenge | 15 | ≤ 45 | **27** |
+| Challenger | The Impossible Dream | 25 | record 45 | **45** |
+
+All nine graded maps meet or beat their target. The optional Challenger
+map is solved in 45 turns, which **ties** the reference record rather
+than beating it.
 
 ## Design Decisions
 
@@ -226,26 +226,41 @@ Recomputing paths when capacity fills up adds complexity. The implementation may
 
 ## Testing Strategy
 
-`tests/` (run via `make test`) covers:
+Testing is command-driven rather than a committed test suite — the
+subject states test programs are neither submitted nor graded.
 
-- **Parser tests** (`test_parser.py`): valid maps, all zone types, every
-  documented error path (missing declarations, duplicate zones/connections,
-  invalid zone type, undefined zone reference, non-positive capacities,
-  unrecognised syntax, missing file).
-- **Graph tests** (`test_graph.py`): per-type movement cost, blocked-zone
-  exclusion, priority tie-break, capacity lookups.
-- **Pathfinding tests** (`test_pathfinding.py`): shortest path on a known
-  line graph, no-path detection, k-distinct-path search on a fork.
-- **Simulation tests** (`test_simulation.py`): straight-line turn count,
-  capacity-1 corridor queueing without collision, fork-vs-corridor
-  throughput, restricted-zone in-flight notation and timing, determinism
-  across repeated runs, and a regression test for a fixed bug where a
-  restricted zone's capacity wasn't reserved until arrival (letting two
-  drones land on a capacity-1 zone on the same turn).
-- **CLI tests** (`test_cli.py`): the exit-code contract (0/1/2/3) end to end.
+**Happy path.** Run every shipped map and check the turn count against
+the benchmark table above:
 
-Manual checks (visual mode, the 8 provided maps, a 50-drone stress run)
-are documented in `DEBUG_TEST_PLAN.md` / `TEST_REPORT.md`.
+```bash
+for m in maps/*/*.txt; do
+    echo "$m: $(uv run python -m src "$m" | grep -m1 '^Total turns:')"
+done
+```
+
+**Rule compliance.** The turn log is independently replayable: re-parse
+the map, walk each `D<id>-<zone>` token, and assert every move is between
+adjacent zones and that no zone ever holds more than its `max_drones`.
+All ten maps pass this replay.
+
+**Error paths.** Each is reproduced by running the binary against a
+hand-written malformed map and reading `echo $?`:
+
+| Exit | Meaning | Example trigger |
+|------|---------|-----------------|
+| 0 | Success | any valid map |
+| 1 | Map file not found or not a regular file | missing path, a directory |
+| 2 | Parse error or bad CLI usage | see below |
+| 3 | No path from start to end | disconnected or fully blocked graph |
+| 4 | Simulation could not finish | deadlock, turn cap exceeded |
+
+Parse errors (exit 2), each reported with the offending line number and
+cause: missing / duplicate `nb_drones`, `start_hub` or `end_hub`;
+`nb_drones` not a positive integer; duplicate zone name; dash in a zone
+name; duplicate connection (`a-b` and `b-a`); connection referencing an
+undefined zone; invalid zone type; malformed, unknown or duplicated
+metadata key; non-positive `max_drones` / `max_link_capacity`;
+unrecognised line syntax; unreadable or non-UTF-8 file.
 
 ## Resources
 
@@ -267,8 +282,9 @@ AI was used for:
   into single-responsibility classes (`MapParser`, `PathFinder`,
   `FlyInApplication`, `SimulationReport`) to satisfy the subject's
   fully-object-oriented requirement
-- Writing the `tests/` pytest suite (parser, graph, pathfinding, simulation,
-  CLI exit codes) covering the edge cases called out in the subject
+- Enumerating and exercising the parser edge cases listed under Testing
+  Strategy (error paths, graph costs, pathfinding, simulation turn
+  mechanics, CLI exit codes), which surfaced several unhandled inputs
 - Generating example map files for testing
 - Reviewing code for PEP 8 compliance and mypy type safety
 - Structuring the project and README documentation

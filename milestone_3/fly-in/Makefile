@@ -1,8 +1,8 @@
-.PHONY: install run debug clean lint lint-strict test
+.PHONY: install run debug clean lint lint-strict
 
 PY := uv run python
 SRC := src
-MAP ?= data/maps/easy_01.map
+MAP ?= maps/easy/01_linear_path.txt
 VISUAL ?= false
 
 install:
@@ -20,13 +20,11 @@ debug:
 
 clean:
 	rm -rf $(SRC)/__pycache__
-	rm -rf tests/__pycache__
 	rm -rf .mypy_cache
-	rm -rf .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
 lint:
-	uv run flake8 $(SRC) tests
+	uv run flake8 $(SRC)
 	uv run mypy $(SRC) \
 		--warn-return-any \
 		--warn-unused-ignores \
@@ -35,8 +33,5 @@ lint:
 		--check-untyped-defs
 
 lint-strict:
-	uv run flake8 $(SRC) tests
+	uv run flake8 $(SRC)
 	uv run mypy $(SRC) --strict
-
-test:
-	uv run pytest tests/ -v
