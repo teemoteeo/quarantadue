@@ -55,7 +55,7 @@ composed together by `FlyInApplication` (`src/__main__.py`):
 | `ZoneLayout` | `src/tui.py` | Places zones on a rank-compressed character grid and fits their labels (pure, curses-free) |
 | `TerminalUI` | `src/tui.py` | Animates the film over that grid with curses |
 | `SimulationReport` | `src/__main__.py` | Computes the secondary scoring metrics (path cost, avg turns/drone) |
-| `FlyInApplication` | `src/__main__.py` | Orchestrates the above and maps failures to the documented exit codes |
+| `FlyInApplication` | `src/__main__.py` | Orchestrates the above (`load()` is the whole parse → plan → simulate pipeline, shared with the TUI's map picker) and maps failures to the documented exit codes |
 
 `ParserError` is a small custom exception carrying the offending line
 number, and `Drone`/`Movement`/`TurnLog` (in `src/simulation.py`) plus the
@@ -352,6 +352,14 @@ yellow on screen, full zones get a red frame):
   current turn (`D3 slow_path1 → slow_path2`, `(2 turns)` for a
   transit), and the busy zones sorted fullest first. The panel hides
   itself when the map needs the width; `p` toggles it.
+- **Map picker.** `m` opens a list of every map under `data/maps` (or,
+  run from elsewhere, the maps next to the current one), with the current
+  map marked `*`. The arrow keys select and Enter loads: the new map is
+  parsed, planned and simulated by the same pipeline as the CLI, then
+  replayed from turn 0. A map that fails to load shows its error in the
+  picker and the current replay stays. The picker also works from the
+  "terminal too small" screen, so a map too wide for the window can be
+  swapped for one that fits.
 - **Controls.** Space plays or pauses (at the end, it replays). The
   arrow keys play exactly one turn forward or backward, so you can watch
   a single turn's moves as often as you like. `+`/`-` change the speed
@@ -438,7 +446,10 @@ engine now counts in-flight drones in the arrival turn too.
   connection and leaving it on landing, a transit stopping at the
   midpoint then landing, zones listing their drones by number, the right
   arrow playing exactly one turn, the delivered count, full zone names
-  in the move list, the panel toggle, and the quit key.
+  in the move list, the panel toggle, the quit key, and the map picker:
+  listing every provided map, opening on the current one, loading
+  another from turn 0, keeping the current map when one fails to load,
+  and `q` closing the picker without quitting.
 
 Beyond the suite, each release is checked against the 10 provided maps
 with an independent rule validator (turn counts in the benchmark table

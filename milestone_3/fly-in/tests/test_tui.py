@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
+from src.__main__ import FlyInApplication
 from src.graph import ZoneGraph
 from src.parser import MapParser
 from src.pathfinding import FlightPlanner
@@ -135,3 +137,59 @@ def test_right_arrow_plays_exactly_one_turn() -> None:
     assert 0 < ui._t < 1
     ui.advance(60)
     assert ui._t == 1.0 and not ui._playing
+
+
+def _app_ui() -> TerminalUI:
+    """A UI wired the way the CLI wires it, maps and loader included."""
+    path = Path("data/maps/hard/02_capacity_hell.txt")
+    app = FlyInApplication(path, visual=False)
+    map_data, _, log = app.load(path)
+    return TerminalUI(
+        map_data, log, title=path.name,
+        maps=app.map_choices(), loader=app.load,
+    )
+
+
+def test_map_choices_lists_every_provided_map() -> None:
+    app = FlyInApplication(Path("data/maps/easy/01_linear_path.txt"),
+                           visual=False)
+    assert list(app.map_choices()) == [
+        str(p.relative_to("data/maps")) for p in MAPS
+    ]
+
+
+def test_picker_opens_on_the_current_map_and_loads_another() -> None:
+    ui = _app_ui()
+    ui._t = 5.0
+    ui.handle(ord("m"))
+    screen = FakeScreen(140, 36)
+    ui.draw(screen)  # type: ignore[arg-type]
+    assert "Choose a map" in screen.text()
+    assert "* hard/02_capacity_hell.txt" in screen.text()
+    ui.handle(258)  # KEY_DOWN
+    ui.handle(10)  # Enter
+    ui.draw(screen)  # type: ignore[arg-type]
+    assert "03_ultimate_challenge.txt" in screen.text()
+    assert "Choose a map" not in screen.text()
+    assert ui._t == 0.0 and ui._playing  # replays the new map from turn 0
+
+
+def test_a_map_that_fails_to_load_keeps_the_current_one(
+    write_map: Callable[..., Path]
+) -> None:
+    ui = _app_ui()
+    ui._maps["broken.map"] = write_map("nb_drones: 0\n", "broken.map")
+    ui.handle(ord("m"))
+    ui._choice = list(ui._maps).index("broken.map")
+    ui.handle(10)
+    screen = FakeScreen(140, 36)
+    ui.draw(screen)  # type: ignore[arg-type]
+    assert "cannot load: Line 1: nb_drones" in screen.text()
+    assert "02_capacity_hell.txt" in screen.text().splitlines()[0]
+
+
+def test_q_in_the_picker_closes_it_without_quitting() -> None:
+    ui = _app_ui()
+    ui.handle(ord("m"))
+    assert ui.handle(ord("q")) is True
+    assert not ui._picking

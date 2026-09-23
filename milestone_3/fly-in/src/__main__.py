@@ -11,6 +11,7 @@ from typing import Sequence
 from .graph import ZoneGraph
 from .parser import MapParser, ParserError
 from .pathfinding import FlightPlanner, PathFinder
+from .schemas import MapFile
 from .simulation import SimulationEngine, TurnLog
 from .tui import TerminalUI
 from .visual import TerminalVisualizer
@@ -88,43 +89,75 @@ class FlyInApplication:
             return 1
 
         try:
-            map_data = MapParser().parse(self._map_path)
-        except ParserError as exc:
+            map_data, timelines, log = self.load(self._map_path)
+        except ParserError as exc:  # a RuntimeError too: catch it first
             print(f"parse error: {exc}", file=sys.stderr)
             return 2
+        except ValueError as exc:
+            print(f"pathfinding error: {exc}", file=sys.stderr)
+            return 3
+        except RuntimeError as exc:
+            print(f"simulation error: {exc}", file=sys.stderr)
+            return 4
 
         print(
             f"Loaded map: {map_data.nb_drones} drones, "
             f"{len(map_data.zones)} zones, "
             f"{len(map_data.connections)} connections"
         )
-
-        graph = ZoneGraph(map_data)
-        try:
-            timelines = FlightPlanner(map_data, graph).plan()
-        except ValueError as exc:
-            print(f"pathfinding error: {exc}", file=sys.stderr)
-            return 3
-
-        try:
-            log = SimulationEngine(map_data, timelines).run()
-        except RuntimeError as exc:
-            print(f"simulation error: {exc}", file=sys.stderr)
-            return 4
-
         print(TerminalVisualizer(
             map_data.zones, enabled=self._visual
         ).render_log(log))
-        SimulationReport(PathFinder(graph), timelines, log).print()
+        SimulationReport(
+            PathFinder(ZoneGraph(map_data)), timelines, log
+        ).print()
         if self._tui:
             try:
-                TerminalUI(map_data, log, title=self._map_path.name).run()
+                TerminalUI(
+                    map_data, log,
+                    title=self._map_path.name,
+                    maps=self.map_choices(),
+                    loader=self.load,
+                ).run()
             except curses.error as exc:
                 # No tty or no TERM: the run itself still succeeded.
                 print(
                     f"warning: cannot open TUI: {exc}", file=sys.stderr
                 )
         return 0
+
+    @staticmethod
+    def load(path: Path) -> tuple[MapFile, list[list[str]], list[TurnLog]]:
+        """Parse, plan and simulate one map: the whole pipeline.
+
+        Returns:
+            The parsed map, one planned timeline per drone, and the
+            simulation's turn log.
+
+        Raises:
+            ParserError: The file is missing or invalid.
+            ValueError: No path leads from start to end.
+            RuntimeError: A plan broke a simulation rule.
+        """
+        map_data = MapParser().parse(path)
+        timelines = FlightPlanner(map_data, ZoneGraph(map_data)).plan()
+        return map_data, timelines, SimulationEngine(map_data, timelines).run()
+
+    def map_choices(self) -> dict[str, Path]:
+        """Maps the TUI offers to switch to, by display name.
+
+        Every map under `data/maps` when run from the project root,
+        otherwise the maps next to the current one.
+        """
+        root = Path("data/maps")
+        if not root.is_dir():
+            root = self._map_path.parent
+        found = {
+            str(p.relative_to(root)): p
+            for p in sorted(root.rglob("*"))
+            if p.suffix in (".txt", ".map") and p.is_file()
+        }
+        return found or {self._map_path.name: self._map_path}
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

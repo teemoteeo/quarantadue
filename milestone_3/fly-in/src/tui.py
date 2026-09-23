@@ -15,6 +15,8 @@ import math
 import sys
 import time
 from collections import Counter
+from pathlib import Path
+from typing import Callable
 
 from .schemas import MapFile, Zone
 from .simulation import SimulationFilm, TurnLog
@@ -38,6 +40,10 @@ Cell = tuple[int, int]
 # listed in that walking order.
 Paths = dict[tuple[str, str], list[Cell]]
 
+
+# Parse, plan and simulate a map file; raises on a bad map.
+Loader = Callable[[Path], tuple[MapFile, list[list[str]], list[TurnLog]]]
+KEY_ENTER = (10, 13, curses.KEY_ENTER)
 
 # The subject allows any single word as `color=`; NAMED is the set both
 # renderers recognise, and anything else falls back to the zone type.
@@ -173,7 +179,7 @@ class TerminalUI:
     spells out the turn's moves and the busy zones; it hides itself when
     the map needs the width. Space plays or pauses, the arrow keys play
     one turn forward or back, `+`/`-` change speed, `p` toggles the
-    panel, `r` restarts and `q` quits.
+    panel, `m` opens the map picker, `r` restarts and `q` quits.
     """
 
     def __init__(
@@ -182,8 +188,24 @@ class TerminalUI:
         log: list[TurnLog],
         *,
         title: str = "",
+        maps: dict[str, Path] | None = None,
+        loader: Loader | None = None,
     ) -> None:
-        """Bind the UI to a parsed map, its simulation log and a title."""
+        """Bind the UI to a map and its log; `maps` and `loader` enable
+        switching to another map from inside the UI."""
+        self._maps = maps or {}
+        self._loader = loader
+        self._picking = False
+        self._choice = 0
+        self._error = ""
+        self._speed = DELAYS_MS.index(1000)
+        self._panel: bool | None = None  # None: decided by terminal width
+        self._cols = 0  # width at the last draw, for the panel toggle
+        self._pairs: dict[str, int] = {}
+        self._show(map_data, log, title)
+
+    def _show(self, map_data: MapFile, log: list[TurnLog], title: str) -> None:
+        """Replace the replay with `map_data` and play it from the start."""
         self._map = map_data
         self._log = log
         self._title = title
@@ -194,15 +216,11 @@ class TerminalUI:
         self._last = len(self._frames) - 1
         self._turn_links = [self._links(i) for i in range(len(self._frames))]
         self._used_links = set().union(*self._turn_links)
-        self._speed = DELAYS_MS.index(1000)
         # Playback clock, in turns: 2.5 is halfway through turn 3. It
         # glides toward `_target`, which is the last turn while playing.
         self._t = 0.0
         self._target = float(self._last)
         self._playing = True
-        self._panel: bool | None = None  # None: decided by terminal width
-        self._cols = 0  # width at the last draw, for the panel toggle
-        self._pairs: dict[str, int] = {}
 
     # ------------------------------------------------------------ clock
 
@@ -316,6 +334,10 @@ class TerminalUI:
             self._put(screen, 0, 0, f"Terminal too small: need at least "
                                     f"{need_cols}x{need_rows}, "
                                     f"have {cols}x{rows}")
+            if self._maps:
+                self._put(screen, 1, 0, "[m] choose another map  [q] quit")
+            if self._picking:
+                self._draw_picker(screen, rows, cols)
             screen.refresh()
             return
         panel = self._panel_shown(cols)
@@ -326,7 +348,52 @@ class TerminalUI:
         if panel:
             self._draw_panel(screen, cols - PANEL_W, rows)
         self._draw_footer(screen, rows)
+        if self._picking:
+            self._draw_picker(screen, rows, cols)
         screen.refresh()
+
+    def _current(self) -> str:
+        """Picker name of the map on screen, or "" if it is not listed."""
+        return next(
+            (n for n, p in self._maps.items() if p.name == self._title), ""
+        )
+
+    def _draw_picker(
+        self, screen: curses.window, rows: int, cols: int
+    ) -> None:
+        """The map list, framed over the middle of the screen."""
+        names = list(self._maps)
+        current = self._current()
+        width = min(cols - 2, max(max(len(n) for n in names) + 8, 58))
+        room = max(1, rows - 8)
+        first = min(max(0, self._choice - room // 2),
+                    max(0, len(names) - room))
+        shown = names[first:first + room]
+        height = len(shown) + 4  # borders, one blank row, the hint
+        top, left = max(0, (rows - height) // 2), max(0, (cols - width) // 2)
+        inner = width - 2
+        frame = curses.A_BOLD
+        title = " Choose a map "
+        self._put(screen, top, left,
+                  TL + title + HORIZ * (inner - len(title)) + TR, frame)
+        for i in range(1, height - 1):
+            self._put(screen, top + i, left,
+                      VERT + " " * inner + VERT, frame)
+        self._put(screen, top + height - 1, left,
+                  BL + HORIZ * inner + BR, frame)
+        for i, name in enumerate(shown, start=first):
+            mark = "*" if name == current else " "
+            text = f" {mark} {name}"[:inner - 1]
+            attr = curses.A_REVERSE | curses.A_BOLD if i == self._choice else 0
+            self._put(screen, top + 1 + i - first, left + 1,
+                      text.ljust(inner - 1), attr)
+        hint = (self._error or
+                "[up/down] select  [enter] load  [m] close   * current")
+        self._put(
+            screen, top + height - 2, left + 2, hint[:inner - 2],
+            self._color("red") | curses.A_BOLD if self._error
+            else curses.A_DIM,
+        )
 
     def _panel_shown(self, cols: int) -> bool:
         """Whether the side panel fits: the user's choice, else auto."""
@@ -644,14 +711,44 @@ class TerminalUI:
         self._put(
             screen, rows - 1, 1,
             "[space] play/pause  [<-/->] one turn  [+/-] speed  "
-            "[p] panel  [r] restart  [q] quit",
+            "[p] panel  [m] maps  [r] restart  [q] quit",
             curses.A_BOLD,
         )
 
     # ------------------------------------------------------------ input
 
+    def _pick(self, key: int) -> None:
+        """A key while the map picker is open: move, load, or close."""
+        names = list(self._maps)
+        if key in (ord("m"), ord("q")):
+            self._picking = False
+        elif key == curses.KEY_UP:
+            self._choice = (self._choice - 1) % len(names)
+            self._error = ""
+        elif key == curses.KEY_DOWN:
+            self._choice = (self._choice + 1) % len(names)
+            self._error = ""
+        elif key in KEY_ENTER and self._loader is not None:
+            path = self._maps[names[self._choice]]
+            try:
+                map_data, _, log = self._loader(path)
+            except (RuntimeError, ValueError) as exc:  # ParserError too
+                self._error = f"cannot load: {exc}"
+                return
+            self._show(map_data, log, path.name)
+            self._picking = False
+
     def handle(self, key: int) -> bool:
         """Apply one key press; return False to quit."""
+        if self._picking:
+            self._pick(key)
+            return True
+        if key == ord("m") and self._maps:
+            self._picking, self._error = True, ""
+            names = list(self._maps)
+            if self._current() in names:
+                self._choice = names.index(self._current())
+            return True
         # Not Esc: an arrow key is Esc + 2 bytes, and over a slow link
         # curses can read that Esc alone and quit mid-replay.
         if key == ord("q"):
