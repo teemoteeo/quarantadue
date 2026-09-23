@@ -91,7 +91,7 @@ runtime dependencies).
 ### Usage
 
 Run the simulation with a map file (`make run` defaults to
-`data/maps/hard/01_maze_nightmare.txt`, colored):
+`data/maps/challenger/01_the_impossible_dream.txt`, colored):
 
 ```bash
 make run MAP=data/maps/easy/01_linear_path.txt
