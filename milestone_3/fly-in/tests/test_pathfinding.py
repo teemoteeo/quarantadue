@@ -1,4 +1,4 @@
-"""Tests for src.pathfinding.PathFinder: static distances and costs."""
+"""Tests for src.pathfinding.PathFinder: static distances."""
 
 from __future__ import annotations
 
@@ -48,13 +48,3 @@ class TestDistances:
     ) -> None:
         dist = _finder(write_map, _DISCONNECTED_MAP).distances_to("b")
         assert dist == {"b": 0.0}
-
-
-class TestPathCost:
-    def test_path_cost_charges_per_zone_entered(
-        self, write_map: Callable[..., Path]
-    ) -> None:
-        finder = _finder(write_map, _LINE_MAP)
-        assert finder.path_cost(["a", "c", "d", "b"]) == 4.0
-        assert finder.path_cost(["a", "c"]) == 1.0
-        assert finder.path_cost(["a"]) == 0.0

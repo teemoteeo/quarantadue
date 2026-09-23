@@ -187,7 +187,7 @@ class TerminalUI:
         map_data: MapFile,
         log: list[TurnLog],
         *,
-        path: Path | None = None,
+        path: Path,
         maps: dict[str, Path] | None = None,
         loader: Loader | None = None,
     ) -> None:
@@ -205,12 +205,11 @@ class TerminalUI:
         self._show(map_data, log, path)
 
     def _show(
-        self, map_data: MapFile, log: list[TurnLog], path: Path | None
+        self, map_data: MapFile, log: list[TurnLog], path: Path
     ) -> None:
         """Replace the replay with `map_data` and play it from the start."""
         self._map = map_data
         self._path = path
-        self._title = path.name if path else ""
         self._layout = ZoneLayout(map_data.zones)
         self._frames = SimulationFilm(
             log, map_data.start.name, map_data.nb_drones
@@ -367,8 +366,6 @@ class TerminalUI:
 
     def _current(self) -> str:
         """Picker name of the map on screen, or "" if it is not listed."""
-        if self._path is None:
-            return ""
         here = self._path.resolve()
         return next(
             (n for n, p in self._maps.items() if p.resolve() == here), ""
@@ -432,7 +429,7 @@ class TerminalUI:
             f"{'playing' if self._playing else 'paused'} "
             f"{DELAYS_MS[self._speed]}ms "
         )
-        title = f"FLY-IN  {self._title}"
+        title = f"FLY-IN  {self._path.name}"
         if len(title) + len(right) + 3 > cols:
             title = "FLY-IN"
         if len(title) + len(right) + 3 > cols:
@@ -496,7 +493,8 @@ class TerminalUI:
                 step = int(self.progress * len(route))
                 placed[drone_id] = route[min(step, len(route) - 1)]
             elif "-" in pos:  # resting halfway down a transit
-                line = paths[(pos.split("-")[0], pos.split("-")[1])]
+                origin, target = pos.split("-")
+                line = paths[(origin, target)]
                 placed[drone_id] = line[len(line) // 2]
         return placed
 

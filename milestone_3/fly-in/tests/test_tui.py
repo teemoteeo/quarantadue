@@ -10,7 +10,6 @@ from typing import Callable
 import pytest
 
 from src.__main__ import FlyInApplication
-from src.graph import ZoneGraph
 from src.parser import MapParser
 from src.pathfinding import FlightPlanner
 from src.simulation import SimulationEngine
@@ -45,7 +44,7 @@ class FakeScreen:
 
 def _ui(path: Path) -> TerminalUI:
     map_file = MapParser().parse(path)
-    timelines = FlightPlanner(map_file, ZoneGraph(map_file)).plan()
+    timelines = FlightPlanner(map_file).plan()
     log = SimulationEngine(map_file, timelines).run()
     return TerminalUI(map_file, log, path=path)
 

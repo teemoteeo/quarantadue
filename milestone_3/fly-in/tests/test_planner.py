@@ -7,7 +7,6 @@ from typing import Callable
 
 import pytest
 
-from src.graph import ZoneGraph
 from src.pathfinding import FlightPlanner
 from src.simulation import SimulationEngine
 from tests.conftest import load_map, plan_flights
@@ -65,7 +64,7 @@ class TestPlanner:
             "hub: island 5 5\nconnection: a-island\n",
         )
         with pytest.raises(ValueError, match="No path"):
-            FlightPlanner(map_file, ZoneGraph(map_file)).plan()
+            FlightPlanner(map_file).plan()
 
     def test_one_timeline_per_drone_from_start_to_end(
         self, write_map: Callable[..., Path]
