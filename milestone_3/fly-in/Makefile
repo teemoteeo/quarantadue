@@ -1,37 +1,35 @@
-.PHONY: install run debug clean lint lint-strict
+.PHONY: install run tui debug clean lint lint-strict test
 
 PY := uv run python
 SRC := src
-MAP ?= maps/easy/01_linear_path.txt
-VISUAL ?= false
+MAP ?= data/maps/challenger/01_the_impossible_dream.txt
+# Set VISUAL_FLAG= (empty) for plain, uncolored output.
+VISUAL_FLAG ?= --visual
 
 install:
-	uv sync
+	uv sync --frozen
 
 run:
-ifeq ($(VISUAL),true)
-	$(PY) -m $(SRC) $(MAP) --visual
-else
-	$(PY) -m $(SRC) $(MAP)
-endif
+	$(PY) -m $(SRC) $(MAP) $(VISUAL_FLAG)
+
+tui:
+	$(PY) -m $(SRC) $(MAP) --tui
 
 debug:
 	$(PY) -m pdb -m $(SRC) $(MAP)
 
 clean:
-	rm -rf $(SRC)/__pycache__
-	rm -rf .mypy_cache
-	find . -type d -name __pycache__ -exec rm -rf {} +
+	rm -rf .mypy_cache .pytest_cache
+	find . -type d -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} +
 
 lint:
-	uv run flake8 $(SRC)
-	uv run mypy $(SRC) \
-		--warn-return-any \
-		--warn-unused-ignores \
-		--ignore-missing-imports \
-		--disallow-untyped-defs \
-		--check-untyped-defs
+	uv run flake8 .
+	uv run mypy . --warn-return-any --warn-unused-ignores \
+		--ignore-missing-imports --disallow-untyped-defs --check-untyped-defs
 
 lint-strict:
-	uv run flake8 $(SRC)
-	uv run mypy $(SRC) --strict
+	uv run flake8 .
+	uv run mypy . --strict
+
+test:
+	uv run pytest tests/ -v

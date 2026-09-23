@@ -1,60 +1,44 @@
-"""Pydantic schemas for the Fly-in drone simulation domain."""
+"""Domain models for the Fly-in drone simulation.
+
+Plain frozen dataclasses; :class:`~src.parser.MapParser` validates every
+field before a model is constructed.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
 
 
 ZoneType = Literal["normal", "blocked", "restricted", "priority"]
 
 
-class ZoneMetadata(BaseModel):
-    """Optional metadata for a zone node."""
+@dataclass(frozen=True)
+class Zone:
+    """A zone (node) in the graph, with its optional `[...]` metadata."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    zone: ZoneType = Field(default="normal")
-    color: str | None = Field(default=None)
-    max_drones: int = Field(default=1, ge=1)
-
-
-class ConnectionMetadata(BaseModel):
-    """Optional metadata for a connection edge."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_link_capacity: int = Field(default=1, ge=1)
-
-
-class Zone(BaseModel):
-    """A zone (node) in the graph with optional metadata."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(..., min_length=1)
+    name: str
     x: int
     y: int
-    metadata: ZoneMetadata = Field(default_factory=ZoneMetadata)
+    zone_type: ZoneType = "normal"
+    color: str | None = None
+    max_drones: int = 1
 
 
-class Connection(BaseModel):
+@dataclass(frozen=True)
+class Connection:
     """A bidirectional edge between two zones."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    from_zone: str = Field(..., min_length=1)
-    to_zone: str = Field(..., min_length=1)
-    metadata: ConnectionMetadata = Field(default_factory=ConnectionMetadata)
+    from_zone: str
+    to_zone: str
+    max_link_capacity: int = 1
 
 
-class MapFile(BaseModel):
+@dataclass(frozen=True)
+class MapFile:
     """Parsed representation of a .map input file."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    nb_drones: int = Field(..., ge=1)
+    nb_drones: int
     start: Zone
     end: Zone
     zones: dict[str, Zone]
