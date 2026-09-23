@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .graph import ZoneGraph
+from .graph import MOVE_COST
 from .parser import MapParser, ParserError
-from .pathfinding import FlightPlanner, PathFinder
-from .schemas import MapFile
+from .pathfinding import FlightPlanner
+from .schemas import MapFile, Zone
 from .simulation import SimulationEngine, TurnLog
 from .tui import TerminalUI
 from .visual import TerminalVisualizer
@@ -22,23 +22,22 @@ class SimulationReport:
 
     def __init__(
         self,
-        finder: PathFinder,
+        zones: dict[str, Zone],
         timelines: list[list[str]],
         log: list[TurnLog],
     ) -> None:
-        """Bind the report to the pathfinder, drone timelines, and log."""
-        self._finder = finder
+        """Bind the report to the map's zones, drone timelines, and log."""
+        self._zones = zones
         self._timelines = timelines
         self._log = log
 
     def total_cost(self) -> float:
-        """Sum the weighted movement cost of every drone's flown route."""
+        """Sum the movement cost of every zone each drone entered."""
         return sum(
-            self._finder.path_cost([
-                pos for i, pos in enumerate(timeline)
-                if "-" not in pos and (i == 0 or pos != timeline[i - 1])
-            ])
+            MOVE_COST[self._zones[pos].zone_type]
             for timeline in self._timelines
+            for prev, pos in zip(timeline, timeline[1:])
+            if pos != prev and "-" not in pos
         )
 
     def avg_turns_per_drone(self) -> float:
@@ -108,9 +107,7 @@ class FlyInApplication:
         print(TerminalVisualizer(
             map_data.zones, enabled=self._visual
         ).render_log(log))
-        SimulationReport(
-            PathFinder(ZoneGraph(map_data)), timelines, log
-        ).print()
+        SimulationReport(map_data.zones, timelines, log).print()
         if self._tui:
             try:
                 TerminalUI(
@@ -140,7 +137,7 @@ class FlyInApplication:
             RuntimeError: A plan broke a simulation rule.
         """
         map_data = MapParser().parse(path)
-        timelines = FlightPlanner(map_data, ZoneGraph(map_data)).plan()
+        timelines = FlightPlanner(map_data).plan()
         return map_data, timelines, SimulationEngine(map_data, timelines).run()
 
     def map_choices(self) -> dict[str, Path]:

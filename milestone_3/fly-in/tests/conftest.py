@@ -7,7 +7,6 @@ from typing import Callable
 
 import pytest
 
-from src.graph import ZoneGraph
 from src.parser import MapParser
 from src.pathfinding import FlightPlanner
 from src.schemas import MapFile
@@ -34,4 +33,4 @@ def load_map(
 
 def plan_flights(map_file: MapFile) -> list[list[str]]:
     """Plan every drone's timeline the way the CLI does."""
-    return FlightPlanner(map_file, ZoneGraph(map_file)).plan()
+    return FlightPlanner(map_file).plan()

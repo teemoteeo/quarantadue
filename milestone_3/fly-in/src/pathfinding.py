@@ -6,7 +6,7 @@ import heapq
 import math
 from collections import defaultdict
 
-from .graph import MOVE_COST, ZoneGraph
+from .graph import ZoneGraph
 from .schemas import MapFile
 
 # A search state: (zone, turn). A drone reaches it at the end of `turn`.
@@ -46,14 +46,6 @@ class PathFinder:
                     heapq.heappush(pq, (new_dist, v))
         return dist
 
-    def path_cost(self, path: list[str]) -> float:
-        """Total movement cost, in turns, of traversing `path` alone.
-
-        Costs are charged for entering each zone after the first, so a
-        one-element path costs nothing.
-        """
-        return sum(MOVE_COST[self._graph.zone_type(z)] for z in path[1:])
-
 
 class FlightPlanner:
     """Plans every drone through time with a shared reservation table.
@@ -69,10 +61,10 @@ class FlightPlanner:
     blind cost to the end, which never overestimates the real one.
     """
 
-    def __init__(self, map_file: MapFile, graph: ZoneGraph) -> None:
-        """Bind the planner to a map and its zone graph."""
+    def __init__(self, map_file: MapFile) -> None:
+        """Bind the planner to a map, building its zone graph."""
         self._map = map_file
-        self._graph = graph
+        self._graph = ZoneGraph(map_file)
         self._start = map_file.start.name
         self._end = map_file.end.name
         self._link_cap = {

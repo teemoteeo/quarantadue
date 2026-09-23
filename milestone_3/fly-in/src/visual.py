@@ -67,9 +67,7 @@ class TerminalVisualizer:
         """ANSI code for `name`: its `color=`, else its zone type."""
         # In-flight destinations are `origin-dest` connection names, and
         # the subject forbids dashes inside zone names.
-        zone = self._zones.get(name.rsplit("-", 1)[-1])
-        if zone is None:
-            return BY_TYPE["normal"]
+        zone = self._zones[name.rsplit("-", 1)[-1]]
         return NAMED.get(zone.color or "", BY_TYPE[zone.zone_type])
 
     def _legend(self) -> str:

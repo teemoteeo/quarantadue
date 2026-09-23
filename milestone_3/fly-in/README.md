@@ -47,7 +47,7 @@ composed together by `FlyInApplication` (`src/__main__.py`):
 |-------|------|-----------------|
 | `MapParser` | `src/parser.py` | Line-by-line grammar, metadata validation, and semantic checks (uniqueness, referential integrity) |
 | `ZoneGraph` | `src/graph.py` | Adjacency list and per-zone movement cost (capacity lives on the parsed map, read directly by the engine) |
-| `PathFinder` | `src/pathfinding.py` | Capacity-blind Dijkstra distances to the end (the planner's heuristic) and path costs |
+| `PathFinder` | `src/pathfinding.py` | Capacity-blind Dijkstra distances to the end (the planner's heuristic) |
 | `FlightPlanner` | `src/pathfinding.py` | Cooperative A*: plans every drone through (zone, turn) space with a shared reservation table |
 | `SimulationEngine` | `src/simulation.py` | Replays the plans turn by turn and enforces every movement and capacity rule |
 | `TerminalVisualizer` | `src/visual.py` | Renders a turn log as colored (or plain) terminal text |
