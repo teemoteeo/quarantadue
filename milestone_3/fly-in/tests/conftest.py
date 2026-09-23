@@ -9,9 +9,8 @@ import pytest
 
 from src.graph import ZoneGraph
 from src.parser import MapParser
-from src.pathfinding import PathFinder
+from src.pathfinding import FlightPlanner
 from src.schemas import MapFile
-from src.simulation import RouteScheduler
 
 
 @pytest.fixture
@@ -33,10 +32,6 @@ def load_map(
     return MapParser().parse(write_map(content, name))
 
 
-def assign_routes(map_file: MapFile) -> list[list[str]]:
-    """Route every drone the way the CLI does."""
-    finder = PathFinder(ZoneGraph(map_file))
-    routes = finder.k_shortest_paths(
-        map_file.start.name, map_file.end.name, map_file.nb_drones
-    )
-    return RouteScheduler(map_file, routes).assign()
+def plan_flights(map_file: MapFile) -> list[list[str]]:
+    """Plan every drone's timeline the way the CLI does."""
+    return FlightPlanner(map_file, ZoneGraph(map_file)).plan()

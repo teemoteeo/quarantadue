@@ -1,8 +1,9 @@
 """Tests for src.simulation.SimulationEngine: movement, capacity, timing rules.
 
-Includes regression tests for fixed bugs: a restricted zone's capacity
-not reserved on departure, a drone in flight not counted against its
-connection's capacity, and a restricted end zone entered in one turn.
+Planned flights must come out of the engine legal, and hand-written
+illegal timelines must be rejected, one test per rule. Includes
+regression tests for fixed bugs: a drone in flight not counted against
+its connection's capacity, and a restricted end zone entered in one turn.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import pytest
 
 from src.schemas import MapFile
 from src.simulation import SimulationEngine, TurnLog
-from tests.conftest import assign_routes, load_map
+from tests.conftest import plan_flights, load_map
 
 
 def _movements_by_zone(log: list[TurnLog]) -> dict[str, list[int]]:
@@ -27,7 +28,7 @@ def _movements_by_zone(log: list[TurnLog]) -> dict[str, list[int]]:
 
 
 def _run(map_file: MapFile) -> list[TurnLog]:
-    paths = assign_routes(map_file)
+    paths = plan_flights(map_file)
     return SimulationEngine(map_file, paths).run()
 
 
@@ -122,12 +123,9 @@ class TestRestrictedZoneTiming:
         assert all_moves.index("D1-a-c") < all_moves.index("D1-c")
         assert len(log) >= 3
 
-    def test_restricted_zone_capacity_is_reserved_on_departure(
+    def test_restricted_zone_never_holds_more_than_its_capacity(
         self, write_map: Callable[..., Path]
     ) -> None:
-        """Regression test: two drones must not both occupy a capacity-1
-        restricted zone even though they depart toward it on the same turn.
-        """
         map_file = load_map(
             write_map,
             "nb_drones: 2\n"
@@ -144,12 +142,8 @@ class TestRestrictedZoneTiming:
             "connection: c-q\n"
             "connection: q-z\n",
         )
-        log = _run(map_file)
-        landings = _movements_by_zone(log)
-        assert len(landings["c"]) == len(set(landings["c"])), (
-            "both drones landed on the capacity-1 restricted zone "
-            "on the same turn"
-        )
+        landings = _movements_by_zone(_run(map_file))
+        assert len(landings["c"]) == len(set(landings["c"]))
 
 
 class TestDeterminism:
@@ -206,25 +200,71 @@ class TestTransitRules:
         ]
 
 
-class TestDeadlock:
-    def test_head_on_drones_raise_instead_of_spinning(
+_RULES_MAP = (
+    "nb_drones: 2\n"
+    "start_hub: s 0 0\n"
+    "hub: a 1 0\n"
+    "hub: r 1 1 [zone=restricted]\n"
+    "hub: x 1 2 [zone=blocked]\n"
+    "end_hub: e 2 0\n"
+    "connection: s-a\n"
+    "connection: s-r\n"
+    "connection: s-x\n"
+    "connection: a-e\n"
+    "connection: r-e\n"
+    "connection: x-e\n"
+)
+
+
+class TestEngineRejectsIllegalPlans:
+    @pytest.mark.parametrize(
+        ("timelines", "error"),
+        [
+            ([["s", "a", "e"], ["s", "a", "e"]], "on a-s|on s-a"),
+            ([["s", "a", "e"], ["s", "s", "a", "e"]], None),
+            ([["s", "e"], ["s", "a", "e"]], "cannot move s -> e"),
+            ([["s", "x", "e"], ["s", "a", "e"]], "cannot move s -> x"),
+            ([["s", "r", "e"], ["s", "a", "e"]], "cannot move s -> r"),
+            ([["s", "s-r", "s-r", "r", "e"], ["s", "a", "e"]],
+             "cannot move s -> s-r"),
+            ([["s", "a"], ["s", "a", "e"]], "must fly"),
+        ],
+    )
+    def test_rule(
+        self,
+        write_map: Callable[..., Path],
+        timelines: list[list[str]],
+        error: str | None,
+    ) -> None:
+        map_file = load_map(write_map, _RULES_MAP)
+        engine = SimulationEngine(map_file, timelines)
+        if error is None:
+            assert len(engine.run()) == 3
+        else:
+            with pytest.raises(RuntimeError, match=error):
+                engine.run()
+
+    def test_zone_capacity_counts_after_departures(
+        self, write_map: Callable[..., Path]
+    ) -> None:
+        """D2 enters `a` on the same turn D1 leaves it: legal."""
+        map_file = load_map(write_map, _RULES_MAP)
+        engine = SimulationEngine(
+            map_file, [["s", "a", "e"], ["s", "s", "a", "e"]]
+        )
+        assert [str(m) for m in engine.run()[1].movements] == [
+            "D1-e", "D2-a"
+        ]
+
+    def test_zone_over_capacity_is_rejected(
         self, write_map: Callable[..., Path]
     ) -> None:
         map_file = load_map(
             write_map,
-            "nb_drones: 2\n"
-            "start_hub: s 0 0\n"
-            "hub: a 1 0\n"
-            "hub: b 1 1\n"
-            "end_hub: e 2 0\n"
-            "connection: s-a\n"
-            "connection: s-b\n"
-            "connection: a-b\n"
-            "connection: a-e\n"
-            "connection: b-e\n",
+            "nb_drones: 2\nstart_hub: s 0 0\nhub: a 1 0\nend_hub: e 2 0\n"
+            "connection: s-a [max_link_capacity=2]\n"
+            "connection: a-e [max_link_capacity=2]\n",
         )
-        engine = SimulationEngine(
-            map_file, [["s", "a", "b", "e"], ["s", "b", "a", "e"]]
-        )
-        with pytest.raises(RuntimeError, match="Deadlock at turn 2"):
+        engine = SimulationEngine(map_file, [["s", "a", "e"]] * 2)
+        with pytest.raises(RuntimeError, match="2 drones in a"):
             engine.run()

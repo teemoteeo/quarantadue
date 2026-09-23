@@ -2,7 +2,7 @@
 
 PY := uv run python
 SRC := src
-MAP ?= data/maps/hard/03_ultimate_challenge.txt
+MAP ?= data/maps/hard/01_maze_nightmare.txt
 # Set VISUAL_FLAG= (empty) for plain, uncolored output.
 VISUAL_FLAG ?= --visual
 

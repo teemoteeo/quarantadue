@@ -23,9 +23,8 @@ class ZoneGraph:
 
     Answers the only two questions pathfinding asks: which zones
     neighbour this one, and what it costs to enter a zone. Capacity is
-    deliberately absent — it lives on the parsed :class:`MapFile` and is
-    enforced by :class:`~src.simulation.SimulationEngine`, which reads it
-    from there directly.
+    deliberately absent — it lives on the parsed :class:`MapFile`, where
+    the planner and the engine read it directly.
     """
 
     def __init__(self, map_file: MapFile) -> None:
@@ -38,16 +37,17 @@ class ZoneGraph:
 
     def neighbours(self, zone_name: str) -> list[tuple[str, float]]:
         """Return (name, cost to enter) for each reachable neighbour."""
-        results: list[tuple[str, float]] = []
-        for neigh in self._adj.get(zone_name, []):
-            dest = self._zones[neigh]
-            if dest.zone_type == "blocked":
-                continue
-            cost = MOVE_COST[dest.zone_type]
-            if dest.zone_type == "priority":
-                cost += PRIORITY_BONUS
-            results.append((neigh, cost))
-        return results
+        return [
+            (neigh, self.cost(neigh))
+            for neigh in self._adj.get(zone_name, [])
+            if self.zone_type(neigh) != "blocked"
+        ]
+
+    def cost(self, name: str) -> float:
+        """Cost of entering `name`; priority zones slightly cheaper."""
+        zone_type = self.zone_type(name)
+        bonus = PRIORITY_BONUS if zone_type == "priority" else 0.0
+        return MOVE_COST[zone_type] + bonus
 
     def zone_type(self, name: str) -> ZoneType:
         """Return the zone type for `name`."""

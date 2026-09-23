@@ -1,4 +1,4 @@
-"""Tests for the display-free replay shared by both renderers."""
+"""Tests for the display-free replay and layout behind the TUI."""
 
 from __future__ import annotations
 
@@ -43,40 +43,46 @@ class TestZoneLayout:
         "goal": Zone("goal", 10, 4),
     }
 
-    def test_cells_stay_inside_the_screen(self) -> None:
-        cells = ZoneLayout(self.ZONES).cells(24, 80)
-        assert all(0 <= r < 24 and 0 <= c < 80 for r, c in cells.values())
+    def test_cells_stay_inside_the_box(self) -> None:
+        cells = ZoneLayout(self.ZONES).cells(2, 1, 20, 78)
+        assert all(2 <= r < 22 - 1 and 1 <= c < 79 for r, c in cells.values())
+
+    def test_distinct_coordinates_get_evenly_spaced_columns(self) -> None:
+        # x = 0, 5, 10 and x = 0, 1, 100 lay out the same: rank, not value.
+        skewed = {
+            "hub": Zone("hub", 0, 0),
+            "mid": Zone("mid", 1, 2),
+            "goal": Zone("goal", 100, 4),
+        }
+        assert ZoneLayout(skewed).cells(0, 0, 20, 60) == ZoneLayout(
+            self.ZONES
+        ).cells(0, 0, 20, 60)
+
+    def test_labels_never_overlap_on_a_row(self) -> None:
+        row = {f"zone_number_{i}": Zone(f"zone_number_{i}", i, 0)
+               for i in range(12)}
+        layout = ZoneLayout(row)
+        cols = sorted(c for _, c in layout.cells(0, 0, 10, 80).values())
+        width = layout.label_width(80)
+        assert all(b - a > width for a, b in zip(cols, cols[1:]))
 
     def test_single_row_map_does_not_divide_by_zero(self) -> None:
         flat = {"a": Zone("a", 0, 0), "b": Zone("b", 3, 0)}
-        rows = {r for r, _ in ZoneLayout(flat).cells(24, 80).values()}
+        rows = {r for r, _ in ZoneLayout(flat).cells(0, 0, 24, 80).values()}
         assert len(rows) == 1
 
-    def test_zone_and_drone_rows_clear_the_status_bar(self) -> None:
-        # Smallest terminal the UI accepts; the drone row sits one
-        # below its zone and must not land on the legend.
-        cells = ZoneLayout(self.ZONES).cells(14, 60)
-        assert max(r for r, _ in cells.values()) + 1 < 14 - 2
-
-    def test_label_carries_marker_and_capacity(self) -> None:
+    def test_label_carries_the_state_marker(self) -> None:
         assert ZoneLayout.label("m8", Zone("m8", 0, 0, "restricted")) == "m8!"
-        assert ZoneLayout.label(
-            "m9", Zone("m9", 0, 0, "priority", max_drones=2)
-        ) == "m9*[2]"
 
-    def test_right_margin_reserves_the_drawn_label_not_the_name(self) -> None:
-        # "goal" is 4 characters but draws as "goal*[3]".
-        wide = {"a": Zone("a", 0, 0), "goal": Zone("goal", 9, 0, "priority",
-                                                   max_drones=3)}
-        col = ZoneLayout(wide).cells(24, 80)["goal"][1]
-        assert col + len("goal*[3]") < 80
+    def test_long_label_keeps_its_digits_and_marker(self) -> None:
+        zone = Zone("conv_restricted7", 0, 0, "restricted")
+        label = ZoneLayout.label("conv_restricted7", zone, 9)
+        assert len(label) == 9
+        assert label.startswith("conv_") and label.endswith("7!")
 
-    def test_fit_shifts_a_right_edge_queue_back_onto_the_screen(self) -> None:
-        # The bug this guards: 6 drones at a goal on the right margin were
-        # drawn as "1 2 3 4" because the rest ran off the screen.
-        assert ZoneLayout.fit(75, 80, "1 2 3 4 5 6") == 68
-        assert ZoneLayout.fit(10, 80, "1 2") == 10
-        assert ZoneLayout.fit(75, 20, "x" * 40) == 0
+    def test_label_without_digits_is_just_cut(self) -> None:
+        label = ZoneLayout.label("bottleneck", Zone("bottleneck", 0, 0), 6)
+        assert len(label) == 6 and label.startswith("bottl")
 
     def test_horizontal_link_is_all_dashes(self) -> None:
         assert ZoneLayout.segments((0, 0), (0, 4)) == [
