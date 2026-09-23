@@ -9,12 +9,9 @@ dependencies = []
 [dependency-groups]
 dev = [
     "flake8>=7.0",
-    "mypy>=1.10",
-    "pytest>=8.0",
+    "mypy>=1.16",
 ]
 
 [tool.mypy]
 python_version = "3.10"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+exclude_gitignore = true

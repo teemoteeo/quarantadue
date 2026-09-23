@@ -1,4 +1,4 @@
-.PHONY: install run tui debug clean lint lint-strict test
+.PHONY: install run tui debug clean lint lint-strict
 
 PY := uv run python
 SRC := src
@@ -30,6 +30,3 @@ lint:
 lint-strict:
 	uv run flake8 .
 	uv run mypy . --strict
-
-test:
-	uv run pytest tests/ -v

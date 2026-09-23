@@ -127,14 +127,6 @@ make lint          # flake8 . + mypy with the subject's flags
 make lint-strict   # flake8 . + mypy --strict
 ```
 
-### Testing
-
-```bash
-make test
-# or
-uv run pytest tests/ -v
-```
-
 ### Clean
 
 ```bash
@@ -373,10 +365,7 @@ yellow on screen, full zones get a red frame):
   much room it needs instead of drawing garbage. Non-UTF-8 terminals get ASCII
   glyphs.
 
-Layout and replay are display-free and unit-tested headlessly
-(`ZoneLayout`, `SimulationFilm`), and every frame of every provided map
-is rendered in tests at three terminal sizes through a fake screen. If
-the terminal cannot host the UI (no tty, no `TERM`), the CLI prints a
+If the terminal cannot host the UI (no tty, no `TERM`), the CLI prints a
 warning and still exits 0, since the simulation itself already succeeded.
 
 ## Challenges
@@ -401,57 +390,7 @@ engine now counts in-flight drones in the arrival turn too.
 
 ## Testing Strategy
 
-`tests/` (run via `make test`) covers:
-
-- **Parser tests** (`test_parser.py`): valid maps, all zone types, every
-  documented error path (missing declarations, duplicate zones/connections,
-  invalid zone type, undefined zone reference, non-positive capacities,
-  unrecognised syntax, missing file) and the strict-grammar cases: dashes
-  in zone names, a start/end hub reusing a zone name, self-connections,
-  unknown/duplicate/malformed metadata, `nb_drones` not first, and the
-  line number on a connection to an undefined zone.
-- **Graph tests** (`test_graph.py`): per-type movement cost, blocked-zone
-  exclusion, priority tie-break.
-- **Pathfinding tests** (`test_pathfinding.py`): reverse-Dijkstra
-  distances charging the zone being entered (restricted = 2),
-  unreachable zones, per-path cost.
-- **Simulation tests** (`test_simulation.py`): straight-line turn count,
-  capacity-1 corridor queueing without collision, fork-vs-corridor
-  throughput, restricted-zone in-flight notation and timing, determinism,
-  a drone in flight still occupying its connection, a restricted end zone
-  taking 2 turns, and the engine rejecting hand-written illegal plans one
-  rule at a time (connection and zone over capacity, non-adjacent move,
-  entering a blocked zone, entering a restricted zone without transit,
-  waiting mid-flight, not ending at the end), while accepting a drone
-  entering a zone on the same turn another leaves it.
-- **CLI tests** (`test_cli.py`): the exit-code contract (0/1/2/3) end to end.
-- **Visualizer tests** (`test_visual.py`): movements painted by the
-  destination zone's color, zone-type fallback, in-flight connection
-  names resolved to their destination, legend markers, and plain mode
-  emitting no ANSI.
-- **Planner tests** (`test_planner.py`): no-path error, one start-to-end
-  timeline per drone, a fork split because sharing one branch queues, a
-  small fleet all queueing on the short route, a large fleet spilling
-  onto the detour, 30 drones spreading evenly over three parallel
-  corridors (11 turns), priority zones winning ties, and a drone waiting
-  at the start rather than landing on a full restricted zone.
-- **Replay and layout tests** (`test_replay.py`): frame 0 at the start
-  hub, one frame per turn, in-flight positions kept as connection names,
-  zones placed inside the box by coordinate rank, labels never
-  overlapping on a row, long labels keeping digits and marker, and link
-  glyphs matching the slope.
-- **TUI tests** (`test_tui.py`): every quarter-turn of every provided
-  map drawn through a fake screen at 60x16, 100x30 and 220x60 (catching
-  drones mid-glide and mid-transit), a moving drone advancing along its
-  connection and leaving it on landing, a transit stopping at the
-  midpoint then landing, zones listing their drones by number, the right
-  arrow playing exactly one turn, the delivered count, full zone names
-  in the move list, the panel toggle, the quit key, and the map picker:
-  listing every provided map, opening on the current one, loading
-  another from turn 0, keeping the current map when one fails to load,
-  and `q` closing the picker without quitting.
-
-Beyond the suite, each release is checked against the 10 provided maps
+Each release is checked against the 10 provided maps
 with an independent rule validator (turn counts in the benchmark table
 above), a 1000-drone stress run, and the crash-safety inputs the parser
 has to survive: a directory, a binary file, an empty file,
@@ -478,8 +417,6 @@ AI was used for:
   into single-responsibility classes (`MapParser`, `PathFinder`,
   `FlyInApplication`, `SimulationReport`) to satisfy the subject's
   fully-object-oriented requirement
-- Writing the `tests/` pytest suite (parser, graph, pathfinding, simulation,
-  CLI exit codes) covering the edge cases called out in the subject
 - Generating example map files for testing
 - Reviewing code for PEP 8 compliance and mypy type safety
 - Structuring the project and README documentation

@@ -25,3 +25,7 @@ Thumbs.db
 
 # Subject (not part of the submission)
 Subject PDF.pdf
+
+# Not required by the subject: kept locally only
+tests/
+data/maps/README.md
