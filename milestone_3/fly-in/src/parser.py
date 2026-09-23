@@ -1,4 +1,4 @@
-"""Parser for the custom .map file format used by Fly-in."""
+"""Parser del formato .map usato da Fly-in."""
 
 from __future__ import annotations
 
@@ -10,20 +10,20 @@ from .schemas import Connection, MapFile, Zone, ZoneType
 
 
 class ParserError(RuntimeError):
-    """Raised when a .map file contains invalid syntax or semantics."""
+    """Sollevata quando un file .map ha sintassi o contenuto non validi."""
 
     def __init__(self, line_no: int, message: str) -> None:
-        """Prefix the message with the offending line number."""
+        """Aggiunge al messaggio il numero della riga sbagliata."""
         super().__init__(f"Line {line_no}: {message}")
 
 
 class MapParser:
-    """Parses a `.map` file into a validated :class:`MapFile` model.
+    """Trasforma un file `.map` in un modello :class:`MapFile` valido.
 
-    Encapsulates the line grammar, metadata parsing, and the post-parse
-    semantic validation (uniqueness, referential integrity) described in
-    the Fly-in subject. A fresh instance is stateless between calls to
-    :meth:`parse`.
+    Contiene la grammatica delle righe, la lettura dei metadati e i
+    controlli finali di coerenza (nomi unici, riferimenti esistenti)
+    descritti nel subject di Fly-in. Una nuova istanza non conserva
+    stato tra una chiamata a :meth:`parse` e l'altra.
     """
 
     # Derived from the Literal so the two can never drift apart.
@@ -41,21 +41,21 @@ class MapParser:
     _CONN_KEYS: frozenset[str] = frozenset({"max_link_capacity"})
 
     def __init__(self) -> None:
-        """Initialise an empty parser ready to parse a map file."""
+        """Crea un parser vuoto, pronto a leggere un file mappa."""
         self._reset()
 
     def parse(self, path: Path) -> MapFile:
-        """Parse `path` and return a validated :class:`MapFile`.
+        """Legge `path` e restituisce una :class:`MapFile` valida.
 
         Args:
-            path: Filesystem path to the `.map` file.
+            path: Percorso del file `.map`.
 
         Returns:
-            The fully validated map representation.
+            La mappa completa e verificata.
 
         Raises:
-            ParserError: If the file is missing or contains invalid
-                syntax or semantics.
+            ParserError: Se il file manca o ha sintassi o contenuto non
+                validi.
         """
         self._reset()
         try:
@@ -72,7 +72,7 @@ class MapParser:
         return self._finalize()
 
     def _reset(self) -> None:
-        """Clear any state left over from a previous parse."""
+        """Cancella lo stato rimasto da un parsing precedente."""
         self._nb_drones: int | None = None
         self._start: Zone | None = None
         self._end: Zone | None = None
@@ -81,7 +81,7 @@ class MapParser:
         self._conn_pairs: set[tuple[str, str]] = set()
 
     def _parse_line(self, line_no: int, raw_line: str) -> None:
-        """Dispatch a single source line to the matching grammar rule."""
+        """Passa una riga del file alla regola di grammatica giusta."""
         line = raw_line.split("#", 1)[0].strip()
         if not line:
             return
@@ -99,10 +99,11 @@ class MapParser:
         raise ParserError(line_no, f"Unrecognised line: {raw_line.rstrip()!r}")
 
     def _try_nb_drones(self, line_no: int, line: str) -> bool:
-        """Parse an `nb_drones: <n>` line; False if `line` is not one.
+        """Legge una riga `nb_drones: <n>`; False se `line` non lo è.
 
         Raises:
-            ParserError: On a second declaration or a non-positive count.
+            ParserError: Se è dichiarata due volte o il numero non è
+                positivo.
         """
         match = self._RE_NB_DRONES.match(line)
         if not match:
@@ -115,7 +116,7 @@ class MapParser:
         return True
 
     def _try_zone(self, line_no: int, line: str) -> bool:
-        """Parse a start_hub/end_hub/hub line; they share one grammar."""
+        """Legge una riga start_hub/end_hub/hub; hanno la stessa grammatica."""
         match = self._RE_ZONE.match(line)
         if not match:
             return False
@@ -135,11 +136,12 @@ class MapParser:
         return True
 
     def _try_connection(self, line_no: int, line: str) -> bool:
-        """Parse a `connection: a-b [...]` line; False if it is not one.
+        """Legge una riga `connection: a-b [...]`; False se non lo è.
 
         Raises:
-            ParserError: On an undefined zone, a self-connection, a
-                duplicate (in either direction) or invalid metadata.
+            ParserError: Se una zona non esiste, la zona è collegata a sé
+                stessa, il collegamento è doppio (in qualsiasi verso) o i
+                metadati non sono validi.
         """
         match = self._RE_CONN.match(line)
         if not match:
@@ -170,7 +172,7 @@ class MapParser:
         return True
 
     def _build_zone(self, line_no: int, match: re.Match[str]) -> Zone:
-        """Build a `Zone` from a start_hub/end_hub/hub regex match."""
+        """Crea una `Zone` da un match della regex start_hub/end_hub/hub."""
         if "-" in match.group(2):
             raise ParserError(
                 line_no, f"Zone name must not contain '-': {match.group(2)!r}"
@@ -196,14 +198,14 @@ class MapParser:
     def _parse_metadata(
         line_no: int, raw: str, allowed: frozenset[str]
     ) -> dict[str, str]:
-        """Extract key=value pairs from the text inside `[...]`.
+        """Estrae le coppie chiave=valore dal testo dentro `[...]`.
 
-        Example: 'zone=restricted color=red max_drones=2' ->
+        Esempio: 'zone=restricted color=red max_drones=2' ->
                  {'zone': 'restricted', 'color': 'red', 'max_drones': '2'}
 
         Raises:
-            ParserError: On a token that is not `key=value`, a key not in
-                `allowed`, or a key given twice.
+            ParserError: Se un pezzo non è `chiave=valore`, se una chiave
+                non è in `allowed` o se una chiave compare due volte.
         """
         result: dict[str, str] = {}
         for part in raw.split():
@@ -219,10 +221,10 @@ class MapParser:
 
     @staticmethod
     def _positive_int(line_no: int, field: str, raw_value: str) -> int:
-        """Convert `raw_value` to an int of at least 1.
+        """Converte `raw_value` in un intero maggiore o uguale a 1.
 
         Raises:
-            ParserError: Naming `field` and the line, if it is not one.
+            ParserError: Con il nome di `field` e la riga, se non lo è.
         """
         try:
             value = int(raw_value)
@@ -238,7 +240,7 @@ class MapParser:
         return value
 
     def _finalize(self) -> MapFile:
-        """Run post-parse semantic checks and assemble the `MapFile`."""
+        """Fa i controlli finali di coerenza e costruisce la `MapFile`."""
         if self._nb_drones is None:
             raise ParserError(0, "Missing nb_drones declaration")
         if self._start is None:

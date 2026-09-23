@@ -1,7 +1,7 @@
-"""Domain models for the Fly-in drone simulation.
+"""Modelli di dati per la simulazione di droni Fly-in.
 
-Plain frozen dataclasses; :class:`~src.parser.MapParser` validates every
-field before a model is constructed.
+Semplici dataclass immutabili; :class:`~src.parser.MapParser`
+controlla ogni campo prima di creare un modello.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ ZoneType = Literal["normal", "blocked", "restricted", "priority"]
 
 @dataclass(frozen=True)
 class Zone:
-    """A zone (node) in the graph, with its optional `[...]` metadata."""
+    """Una zona (nodo) del grafo, con i suoi metadati `[...]` opzionali."""
 
     name: str
     x: int
@@ -27,7 +27,7 @@ class Zone:
 
 @dataclass(frozen=True)
 class Connection:
-    """A bidirectional edge between two zones."""
+    """Un collegamento bidirezionale tra due zone."""
 
     from_zone: str
     to_zone: str
@@ -36,7 +36,7 @@ class Connection:
 
 @dataclass(frozen=True)
 class MapFile:
-    """Parsed representation of a .map input file."""
+    """Contenuto letto da un file .map."""
 
     nb_drones: int
     start: Zone

@@ -1,4 +1,4 @@
-"""Graph data structures and adjacency operations for zone networks."""
+"""Strutture a grafo e adiacenze per la rete di zone."""
 
 from __future__ import annotations
 
@@ -19,16 +19,16 @@ PRIORITY_BONUS: float = -0.01
 
 
 class ZoneGraph:
-    """Adjacency-list representation of the drone zone network.
+    """Rete di zone dei droni come lista di adiacenza.
 
-    Answers the only two questions pathfinding asks: which zones
-    neighbour this one, and what it costs to enter a zone. Capacity is
-    deliberately absent — it lives on the parsed :class:`MapFile`, where
-    the planner and the engine read it directly.
+    Risponde alle sole due domande che fa la ricerca dei percorsi: quali
+    zone confinano con questa, e quanto costa entrare in una zona. La
+    capacità manca di proposito: sta nella :class:`MapFile` letta, dove
+    il pianificatore e il motore la leggono direttamente.
     """
 
     def __init__(self, map_file: MapFile) -> None:
-        """Build the bidirectional adjacency list from a parsed map."""
+        """Costruisce la lista di adiacenza bidirezionale dalla mappa."""
         self._zones: dict[str, Zone] = map_file.zones
         self._adj: dict[str, list[str]] = defaultdict(list)
         for conn in map_file.connections:
@@ -36,18 +36,18 @@ class ZoneGraph:
             self._adj[conn.to_zone].append(conn.from_zone)
 
     def neighbours(self, zone_name: str) -> list[str]:
-        """Neighbouring zones a drone can enter (blocked ones excluded)."""
+        """Zone vicine in cui un drone può entrare (escluse le bloccate)."""
         return [
             neigh for neigh in self._adj.get(zone_name, [])
             if self.zone_type(neigh) != "blocked"
         ]
 
     def cost(self, name: str) -> float:
-        """Cost of entering `name`; priority zones slightly cheaper."""
+        """Costo per entrare in `name`; le zone priority costano poco meno."""
         zone_type = self.zone_type(name)
         bonus = PRIORITY_BONUS if zone_type == "priority" else 0.0
         return MOVE_COST[zone_type] + bonus
 
     def zone_type(self, name: str) -> ZoneType:
-        """Return the zone type for `name`."""
+        """Restituisce il tipo della zona `name`."""
         return self._zones[name].zone_type

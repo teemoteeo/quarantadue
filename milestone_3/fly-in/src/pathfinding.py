@@ -1,4 +1,4 @@
-"""Pathfinding: static distances, and cooperative planning through time."""
+"""Percorsi: distanze fisse e pianificazione condivisa nel tempo."""
 
 from __future__ import annotations
 
@@ -14,22 +14,23 @@ State = tuple[str, int]
 
 
 class PathFinder:
-    """Static, capacity-blind distances over a :class:`ZoneGraph`.
+    """Distanze fisse su una :class:`ZoneGraph`, senza capacità.
 
-    Entering a zone costs its movement cost (blocked zones are excluded
-    by the graph, priority zones are nudged cheaper so they win ties).
+    Entrare in una zona costa il suo costo di movimento (le zone
+    bloccate le esclude il grafo, le zone priority costano un po' meno
+    così vincono a parità).
     """
 
     def __init__(self, graph: ZoneGraph) -> None:
-        """Bind this pathfinder to the zone network it will search."""
+        """Collega questo pathfinder alla rete di zone da esplorare."""
         self._graph = graph
 
     def distances_to(self, end: str) -> dict[str, float]:
-        """Cheapest cost from every zone that can reach `end`, to `end`.
+        """Costo minimo verso `end` da ogni zona che può raggiungerla.
 
-        One Dijkstra run from `end` over the reversed graph: stepping
-        back from `u` to a neighbour `v` costs what entering `u` costs.
-        Zones missing from the result cannot reach `end` at all.
+        Un solo Dijkstra partendo da `end` sul grafo al contrario: tornare
+        da `u` a un vicino `v` costa quanto entrare in `u`. Le zone che non
+        sono nel risultato non possono raggiungere `end`.
         """
         if self._graph.zone_type(end) == "blocked":
             return {}
@@ -48,21 +49,23 @@ class PathFinder:
 
 
 class FlightPlanner:
-    """Plans every drone through time with a shared reservation table.
+    """Pianifica ogni drone nel tempo con una tabella di prenotazioni.
 
-    Cooperative A*: drones are planned one after another, and each finds
-    its earliest arrival in (zone, turn) space around what the drones
-    before it reserved — zone slots per turn and connection slots per
-    turn. Waiting is just another move (same zone, next turn), so
-    splitting the fleet over routes, strategic waiting and conflict
-    avoidance all fall out of one search instead of being separate steps.
+    A* cooperativo: i droni vengono pianificati uno dopo l'altro, e
+    ognuno cerca l'arrivo più presto nello spazio (zona, turno) evitando
+    ciò che hanno prenotato i droni prima di lui: posti nelle zone per
+    turno e posti sui collegamenti per turno. Aspettare è solo un'altra
+    mossa (stessa zona, turno dopo), quindi dividere i droni su più
+    strade, aspettare al momento giusto ed evitare conflitti escono
+    tutti da un'unica ricerca invece che da passi separati.
 
-    The A* heuristic is :meth:`PathFinder.distances_to`: the capacity-
-    blind cost to the end, which never overestimates the real one.
+    L'euristica di A* è :meth:`PathFinder.distances_to`: il costo fino
+    alla fine senza contare la capacità, che non supera mai quello
+    reale.
     """
 
     def __init__(self, map_file: MapFile) -> None:
-        """Bind the planner to a map, building its zone graph."""
+        """Collega il pianificatore a una mappa e ne crea il grafo."""
         self._map = map_file
         self._graph = ZoneGraph(map_file)
         self._start = map_file.start.name
@@ -78,14 +81,15 @@ class FlightPlanner:
         )
 
     def plan(self) -> list[list[str]]:
-        """Return one timeline per drone: its position after each turn.
+        """Restituisce una timeline per drone: dove si trova dopo ogni turno.
 
-        `timeline[t]` is a zone name, or an `origin-dest` connection name
-        while in transit toward a restricted zone; `timeline[0]` is the
-        start zone and the last entry is the end zone.
+        `timeline[t]` è il nome di una zona, oppure il nome di un
+        collegamento `origine-destinazione` mentre il drone è in viaggio
+        verso una zona restricted; `timeline[0]` è la zona di partenza e
+        l'ultimo elemento è la zona finale.
 
         Raises:
-            ValueError: If no path at all leads from start to end.
+            ValueError: Se nessun percorso porta dall'inizio alla fine.
         """
         heuristic = PathFinder(self._graph).distances_to(self._end)
         if self._start not in heuristic:
@@ -100,11 +104,12 @@ class FlightPlanner:
         return timelines
 
     def _search(self, heuristic: dict[str, float]) -> list[State]:
-        """A* over (zone, turn) from the start to the earliest arrival.
+        """A* su (zona, turno) dalla partenza all'arrivo più presto.
 
-        Every path to a given state takes the same number of turns, so
-        the first time a state is reached is as good as any later one.
-        Waiting at the start is always allowed, so a plan always exists.
+        Tutti i percorsi verso uno stesso stato durano lo stesso numero di
+        turni, quindi la prima volta che lo si raggiunge va bene quanto le
+        successive. Aspettare alla partenza è sempre possibile, quindi un
+        piano esiste sempre.
         """
         came_from: dict[State, State | None] = {(self._start, 0): None}
         pq = [(heuristic[self._start], 0, self._start)]
@@ -126,11 +131,12 @@ class FlightPlanner:
         return states[::-1]
 
     def _successors(self, zone: str, turn: int) -> list[State]:
-        """States reachable next: wait, step to a zone, or start a transit.
+        """Stati raggiungibili dopo: aspettare, entrare in una zona o partire.
 
-        A restricted zone takes two turns: the drone holds the connection
-        on both, and must land on the second — so the zone needs room
-        then, and there is no waiting mid-flight.
+        Una zona restricted richiede due turni: il drone occupa il
+        collegamento in entrambi e deve atterrare al secondo, quindi la
+        zona deve avere posto in quel momento e non si può aspettare a metà
+        volo.
         """
         result: list[State] = []
         if self._zone_free(zone, turn + 1):
@@ -148,17 +154,17 @@ class FlightPlanner:
         return result
 
     def _zone_free(self, zone: str, turn: int) -> bool:
-        """Whether one more drone fits in `zone` after `turn`."""
+        """Se un altro drone ci sta in `zone` dopo `turn`."""
         if zone in (self._start, self._end):
             return True
         return self._occupied[(zone, turn)] < self._map.zones[zone].max_drones
 
     def _link_free(self, link: frozenset[str], turn: int) -> bool:
-        """Whether one more drone fits on `link` during `turn`."""
+        """Se un altro drone ci sta su `link` durante `turn`."""
         return self._on_link[(link, turn)] < self._link_cap[link]
 
     def _reserve(self, states: list[State]) -> None:
-        """Book the zone and connection slots a planned drone uses."""
+        """Prenota i posti in zone e collegamenti usati da un drone."""
         for (a, t_a), (b, t_b) in zip(states, states[1:]):
             if a != b:
                 for turn in range(t_a + 1, t_b + 1):
@@ -167,7 +173,7 @@ class FlightPlanner:
 
     @staticmethod
     def _timeline(states: list[State]) -> list[str]:
-        """Expand the searched states into one position per turn."""
+        """Trasforma gli stati trovati in una posizione per ogni turno."""
         timeline = [states[0][0]]
         for (a, t_a), (b, t_b) in zip(states, states[1:]):
             if t_b - t_a == 2:

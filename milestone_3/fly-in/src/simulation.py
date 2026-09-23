@@ -1,15 +1,17 @@
-"""Turn-based simulation: replaying planned flights under the rules.
+"""Simulazione a turni: riproduce i voli pianificati con le regole.
 
-The planner (:class:`~src.pathfinding.FlightPlanner`) decides where each
-drone is after every turn. The engine replays those timelines one turn
-at a time and enforces every movement and capacity rule of the subject,
-so an illegal plan fails loudly instead of printing an invalid log.
+Il pianificatore (:class:`~src.pathfinding.FlightPlanner`) decide
+dove si trova ogni drone dopo ogni turno. Il motore riproduce queste
+timeline un turno alla volta e controlla ogni regola di movimento e
+capacità del subject, così un piano non valido fallisce subito
+invece di stampare un log sbagliato.
 
-Key rules from the subject:
-- Drones moving out of a zone free up capacity for that SAME turn.
-- Zone capacity is checked AFTER departures are accounted for.
-- Restricted zone transit: drone occupies connection, must arrive next turn.
-- Blocked zones are never entered.
+Regole principali del subject:
+- I droni che lasciano una zona liberano posto già nello STESSO turno.
+- La capacità di una zona si controlla DOPO aver contato le partenze.
+- Zona restricted: il drone occupa il collegamento e arriva al turno
+  dopo.
+- Nelle zone bloccate non si entra mai.
 """
 
 from __future__ import annotations
@@ -22,55 +24,59 @@ from .schemas import MapFile
 
 @dataclass(frozen=True)
 class Movement:
-    """One drone's destination on a single turn.
+    """Dove va un drone in un singolo turno.
 
-    `destination` is a zone name, or an `origin-dest` connection name
-    while the drone is in transit toward a restricted zone. Keeping the
-    drone id as a field rather than baking it into a string means
-    consumers read it directly instead of re-parsing the rendered token,
-    which is ambiguous for connection names (``D3-a-b``).
+    `destination` è il nome di una zona, oppure il nome di un
+    collegamento `origine-destinazione` mentre il drone è in viaggio
+    verso una zona restricted. Tenere l'id del drone come campo
+    separato, invece di metterlo dentro una stringa, permette di
+    leggerlo direttamente senza rileggere il testo stampato, che è
+    ambiguo per i nomi dei collegamenti (``D3-a-b``).
     """
 
     drone_id: int
     destination: str
 
     def __str__(self) -> str:
-        """Render the subject's `D<id>-<destination>` output token."""
+        """Scrive il token di output `D<id>-<destination>` del subject."""
         return f"D{self.drone_id}-{self.destination}"
 
 
 @dataclass
 class TurnLog:
-    """The set of drone movements that occurred during one simulation turn."""
+    """Tutti i movimenti dei droni avvenuti in un turno."""
 
     turn: int
     movements: list[Movement]
 
 
 class SimulationEngine:
-    """Replays one planned timeline per drone, enforcing the rules.
+    """Riproduce una timeline pianificata per drone, controllando le regole.
 
-    Each turn, every drone moves to its next planned position, and the
-    turn is checked as a whole:
+    A ogni turno ogni drone va alla sua prossima posizione, e il turno
+    viene controllato tutto insieme:
 
-    - a move follows a connection and never enters a blocked zone;
-    - a restricted zone is entered only through a transit on its
-      connection (`D1-a-b`), and the drone lands on the very next turn;
-    - drones on each connection during the turn, and in each zone after
-      it (start and end excepted), stay within capacity.
+    - una mossa segue un collegamento e non entra mai in una zona
+      bloccata;
+    - in una zona restricted si entra solo passando dal suo
+      collegamento (`D1-a-b`), e il drone atterra al turno subito dopo;
+    - i droni su ogni collegamento durante il turno, e in ogni zona dopo
+      il turno (tranne partenza e arrivo), non superano la capacità.
 
-    Occupancy is counted after all moves, so a drone leaving a zone frees
-    its slot for another entering on the same turn.
+    L'occupazione si conta dopo tutte le mosse, quindi un drone che
+    lascia una zona libera il posto per un altro che entra nello stesso
+    turno.
     """
 
     def __init__(self, map_file: MapFile, timelines: list[list[str]]) -> None:
-        """Bind the engine to a map and one timeline per drone.
+        """Collega il motore a una mappa e a una timeline per drone.
 
         Args:
-            map_file: The parsed map describing zones and connections.
-            timelines: Per drone, its position after each turn: a zone,
-                or an `origin-dest` connection while in transit toward a
-                restricted zone. Index 0 is the start zone.
+            map_file: La mappa letta, con zone e collegamenti.
+            timelines: Per ogni drone, dove si trova dopo ogni turno: una
+                zona, oppure un collegamento `origine-destinazione` mentre
+                è in viaggio verso una zona restricted. L'indice 0 è la zona
+                di partenza.
         """
         self._map = map_file
         self._timelines = timelines
@@ -83,13 +89,14 @@ class SimulationEngine:
             self._link_cap[link] = conn.max_link_capacity
 
     def run(self) -> list[TurnLog]:
-        """Replay every turn until the last drone is delivered.
+        """Riproduce ogni turno finché l'ultimo drone non è arrivato.
 
         Returns:
-            The full per-turn movement log.
+            Il log completo dei movimenti turno per turno.
 
         Raises:
-            RuntimeError: If a timeline breaks a movement or capacity rule.
+            RuntimeError: Se una timeline viola una regola di movimento o
+                di capacità.
         """
         start, end = self._map.start.name, self._map.end.name
         for drone_id, timeline in enumerate(self._timelines, start=1):
@@ -101,7 +108,7 @@ class SimulationEngine:
         return [self._step(turn) for turn in range(1, last_turn + 1)]
 
     def _step(self, turn: int) -> TurnLog:
-        """Move every drone still flying one turn, and check the result."""
+        """Muove di un turno i droni in volo e controlla il risultato."""
         movements: list[Movement] = []
         on_link: Counter[frozenset[str]] = Counter()
         in_zone: Counter[str] = Counter()
@@ -133,9 +140,10 @@ class SimulationEngine:
     def _check_move(
         self, turn: int, drone_id: int, timeline: list[str]
     ) -> frozenset[str]:
-        """Validate one drone's move this turn; return the link it uses.
+        """Controlla la mossa di un drone nel turno; restituisce il link usato.
 
-        Zone names never contain a dash, so a dash marks a connection.
+        I nomi delle zone non contengono mai un trattino, quindi un
+        trattino indica un collegamento.
         """
         before, after = timeline[turn - 1], timeline[turn]
         if "-" in before:
@@ -166,21 +174,22 @@ class SimulationEngine:
 
 
 class SimulationFilm:
-    """Replays a turn log into one drone-position snapshot per turn.
+    """Trasforma un log dei turni in una foto delle posizioni per turno.
 
-    A position is a zone name, or an `origin-dest` connection name while
-    a drone is in transit toward a restricted zone. Drones omitted from
-    a turn line keep the position they held on the previous turn.
+    Una posizione è il nome di una zona, oppure il nome di un
+    collegamento `origine-destinazione` mentre un drone è in viaggio
+    verso una zona restricted. I droni che non compaiono in una riga
+    restano dove erano al turno prima.
     """
 
     def __init__(self, log: list[TurnLog], start: str, nb_drones: int) -> None:
-        """Bind the film to a turn log, the start zone, and drone count."""
+        """Collega il film al log dei turni, alla partenza e ai droni."""
         self._log = log
         self._start = start
         self._nb_drones = nb_drones
 
     def frames(self) -> list[dict[int, str]]:
-        """Return frame 0 (all drones at start) plus one frame per turn."""
+        """Fotogramma 0 (tutti alla partenza) più uno per ogni turno."""
         current = {i: self._start for i in range(1, self._nb_drones + 1)}
         frames = [dict(current)]
         for turn in self._log:

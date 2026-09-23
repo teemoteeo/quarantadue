@@ -1,4 +1,4 @@
-"""Colored terminal visualization for drone simulation output."""
+"""Visualizzazione a colori nel terminale dell'output della simulazione."""
 
 from __future__ import annotations
 
@@ -40,38 +40,39 @@ MARKER = {"normal": "", "priority": "*", "restricted": "!", "blocked": "x"}
 
 
 class TerminalVisualizer:
-    """Renders a simulation's turn log as colored terminal text.
+    """Mostra il log dei turni di una simulazione come testo colorato.
 
-    Each movement is painted with its destination zone's `color=`
-    metadata (falling back to a per-zone-type color), so a turn line
-    shows both who moved and what kind of zone they entered. A legend
-    lists every zone in its own color with a state marker.
+    Ogni movimento prende il colore `color=` della zona di arrivo (o,
+    se manca, un colore in base al tipo di zona), così una riga del
+    turno mostra sia chi si è mosso sia in che tipo di zona è entrato.
+    Una legenda elenca ogni zona nel suo colore con un simbolo di
+    stato.
 
-    When `enabled` is False, output is identical but plain (no ANSI
-    codes) — this keeps a single rendering path for both the
-    `--visual` and default CLI modes.
+    Quando `enabled` è False, l'output è identico ma semplice (senza
+    codici ANSI): così c'è un solo modo di disegnare sia per
+    `--visual` sia per la modalità normale.
     """
 
     def __init__(
         self, zones: dict[str, Zone], *, enabled: bool = True
     ) -> None:
-        """Create a visualizer over `zones`; `enabled` toggles color."""
+        """Crea un visualizzatore per `zones`; `enabled` attiva i colori."""
         self._zones = zones
         self._enabled = enabled
 
     def _color(self, code: str, text: str) -> str:
-        """Wrap `text` in an ANSI `code`, if coloring is enabled."""
+        """Avvolge `text` in un `code` ANSI, se i colori sono attivi."""
         return f"{code}{text}{RESET}" if self._enabled else text
 
     def _zone_code(self, name: str) -> str:
-        """ANSI code for `name`: its `color=`, else its zone type."""
+        """Codice ANSI per `name`: il suo `color=`, se no il tipo di zona."""
         # In-flight destinations are `origin-dest` connection names, and
         # the subject forbids dashes inside zone names.
         zone = self._zones[name.rsplit("-", 1)[-1]]
         return NAMED.get(zone.color or "", BY_TYPE[zone.zone_type])
 
     def _legend(self) -> str:
-        """One line naming every zone in its color, with state markers."""
+        """Una riga con ogni zona nel suo colore e i simboli di stato."""
         return "Zones: " + " ".join(
             self._color(
                 self._zone_code(name), name + MARKER[zone.zone_type]
@@ -80,7 +81,7 @@ class TerminalVisualizer:
         ) + "   (* priority, ! restricted, x blocked)"
 
     def render_log(self, log: list[TurnLog]) -> str:
-        """Render the log: a header, then one subject-format line per turn."""
+        """Disegna il log: intestazione, poi una riga per turno."""
         lines = [
             self._color(HEADER, "=== Fly-in Simulation ==="), self._legend()
         ]

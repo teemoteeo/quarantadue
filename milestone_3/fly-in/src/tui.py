@@ -1,10 +1,12 @@
-"""Curses terminal UI: the zone network drawn and animated in the shell.
+"""Interfaccia curses: la rete di zone disegnata e animata nel terminale.
 
-Works over ssh and on a 42 lab machine with no windowing system. It
-replays a :class:`~src.simulation.SimulationFilm` built from the same
-turn log the text output prints, so the two can never disagree.
+Funziona via ssh e sui computer del lab 42 senza interfaccia
+grafica. Riproduce un :class:`~src.simulation.SimulationFilm` creato
+dallo stesso log dei turni che stampa l'output testuale, quindi i
+due non possono mai essere in disaccordo.
 
-`curses` ships with CPython on Unix, so this adds no dependency.
+`curses` è incluso in CPython su Unix, quindi non aggiunge
+dipendenze.
 """
 
 from __future__ import annotations
@@ -62,38 +64,39 @@ CURSES_COLOR = {
 
 
 class ZoneLayout:
-    """Places zones on a character grid — pure math, no curses.
+    """Posiziona le zone su una griglia di caratteri, senza curses.
 
-    Coordinates are rank-compressed: the k-th distinct `x` becomes
-    column k and the k-th distinct `y` becomes row k. Zones keep their
-    left/right and up/down order, every column gets the same width, and
-    boxes never overlap. Each zone is a 3-row box: its name set in the
-    top border, its drones on the middle row.
+    Le coordinate vengono compresse per rango: la k-esima `x` diversa
+    diventa la colonna k e la k-esima `y` diversa diventa la riga k. Le
+    zone mantengono l'ordine sinistra/destra e su/giù, ogni colonna ha
+    la stessa larghezza e i riquadri non si sovrappongono mai. Ogni
+    zona è un riquadro di 3 righe: il nome sul bordo in alto, i droni
+    nella riga centrale.
     """
 
     def __init__(self, zones: dict[str, Zone]) -> None:
-        """Bind the layout to the parsed map's zones."""
+        """Collega il layout alle zone della mappa letta."""
         self._zones = zones
         self._xs = sorted({z.x for z in zones.values()})
         self._ys = sorted({z.y for z in zones.values()})
 
     @property
     def min_height(self) -> int:
-        """Rows the map needs: a 3-row box per distinct `y`, 1-row gaps."""
+        """Righe per la mappa: 3 per ogni `y` diversa, più 1 di spazio."""
         return 4 * len(self._ys) - 1
 
     @property
     def min_width(self) -> int:
-        """Columns the map needs: a 5-wide box per distinct `x`, gaps."""
+        """Colonne per la mappa: 5 per ogni `x` diversa, più gli spazi."""
         return 8 * len(self._xs)
 
     @staticmethod
     def label(name: str, zone: Zone, width: int = 0) -> str:
-        """A zone's name and state marker, fitted to `width` if given.
+        """Nome e simbolo di stato di una zona, adattati a `width` se c'è.
 
-        A long name keeps its trailing digits, which are usually what
-        tells sibling zones apart: `conv_restricted7!` in 9 columns
-        reads `conv_…7!`.
+        Un nome lungo mantiene le cifre finali, che di solito distinguono
+        zone simili: `conv_restricted7!` in 9 colonne diventa
+        `conv_…7!`.
         """
         marker = MARKER[zone.zone_type]
         room = width - len(marker)
@@ -104,13 +107,16 @@ class ZoneLayout:
         return name[:head] + CUT + name[len(name) - max(tail, 0):] + marker
 
     def pitch(self, width: int) -> int:
-        """Columns each distinct `x` gets in a `width`-wide map."""
+        """Colonne per ogni `x` diversa in una mappa larga `width`."""
         return max(8, width // len(self._xs))
 
     def box_width(self, width: int) -> int:
-        """Box width in a `width`-wide map: the longest name plus borders,
-        capped so a third of each column is left for the connection
-        between boxes, where drones are seen gliding."""
+        """Larghezza di un riquadro in una mappa larga `width`.
+
+        È il nome più lungo più i bordi, limitata in modo da lasciare un
+        terzo di ogni colonna al collegamento tra i riquadri, dove si vedono
+        scorrere i droni.
+        """
         longest = max(
             len(self.label(n, z)) for n, z in self._zones.items()
         )
@@ -120,7 +126,7 @@ class ZoneLayout:
     def cells(
         self, top: int, left: int, height: int, width: int
     ) -> dict[str, tuple[int, int]]:
-        """Top-left `(row, col)` of each zone's box, centred in the area."""
+        """Angolo in alto a sinistra `(riga, colonna)` di ogni riquadro."""
         pitch_x = self.pitch(width)
         pitch_y = max(4, height // len(self._ys))
         used_w = pitch_x * (len(self._xs) - 1) + self.box_width(width)
@@ -139,12 +145,12 @@ class ZoneLayout:
     def segments(
         a: tuple[int, int], b: tuple[int, int]
     ) -> list[tuple[int, int, str]]:
-        """Interior cells of the line from `a` to `b`, each with its glyph.
+        """Celle interne della linea da `a` a `b`, ognuna con il suo carattere.
 
-        The glyph comes from the step that reached the cell, not from the
-        connection's overall slope: a line that advances two columns per
-        row is a run of `-` with a `\\` where it drops, which is what an
-        ASCII diagram looks like.
+        Il carattere dipende dal passo che ha raggiunto la cella, non dalla
+        pendenza generale del collegamento: una linea che avanza di due
+        colonne per riga è una serie di `-` con un `\\` dove scende, proprio
+        come in un disegno ASCII.
         """
         steps = max(abs(b[0] - a[0]), abs(b[1] - a[1]))
         cells: list[tuple[int, int, str]] = []
@@ -164,22 +170,23 @@ class ZoneLayout:
 
 
 class TerminalUI:
-    """Animates the simulation on a curses screen, drone by drone.
+    """Anima la simulazione in una schermata curses, drone per drone.
 
-    Playback runs on a continuous clock: between two turns every moving
-    drone slides along its connection, drawn as its own number, so each
-    drone can be followed from zone to zone. A transit toward a
-    restricted zone stops halfway down the connection after the first
-    turn and lands on the second. At rest, each zone lists the drones in
-    it next to its free slots (`□`), red when full; the drones that moved
-    last are highlighted.
+    La riproduzione segue un orologio continuo: tra due turni ogni
+    drone in movimento scorre lungo il suo collegamento, disegnato con
+    il suo numero, così si può seguire ogni drone da una zona all'altra.
+    Un viaggio verso una zona restricted si ferma a metà collegamento
+    dopo il primo turno e atterra al secondo. Da fermi, ogni zona mostra
+    i suoi droni accanto ai posti liberi (`□`), in rosso quando è piena;
+    i droni che si sono mossi per ultimi sono evidenziati.
 
-    Connections are colored by traffic: yellow while a drone is on it,
-    normal if one ever is, dim if the plan never uses it. The side panel
-    spells out the turn's moves and the busy zones; it hides itself when
-    the map needs the width. Space plays or pauses, the arrow keys play
-    one turn forward or back, `+`/`-` change speed, `p` toggles the
-    panel, `m` opens the map picker, `r` restarts and `q` quits.
+    I collegamenti sono colorati in base al traffico: giallo mentre un
+    drone ci passa, normale se prima o poi viene usato, spento se il
+    piano non lo usa mai. Il pannello laterale elenca le mosse del turno
+    e le zone occupate; si nasconde se la mappa ha bisogno di spazio.
+    Spazio avvia o mette in pausa, le frecce vanno avanti o indietro di
+    un turno, `+`/`-` cambiano la velocità, `p` mostra o nasconde il
+    pannello, `m` apre la scelta della mappa, `r` ricomincia e `q` esce.
     """
 
     def __init__(
@@ -191,8 +198,10 @@ class TerminalUI:
         maps: dict[str, Path] | None = None,
         loader: Loader | None = None,
     ) -> None:
-        """Bind the UI to a map, its log and its file; `maps` and
-        `loader` enable switching to another map from inside the UI."""
+        """Collega la UI a una mappa, al suo log e al suo file.
+
+        `maps` e `loader` permettono di passare a un'altra mappa dalla UI.
+        """
         self._maps = maps or {}
         self._loader = loader
         self._picking = False
@@ -207,7 +216,7 @@ class TerminalUI:
     def _show(
         self, map_data: MapFile, log: list[TurnLog], path: Path
     ) -> None:
-        """Replace the replay with `map_data` and play it from the start."""
+        """Sostituisce la riproduzione con `map_data` e la fa ripartire."""
         self._map = map_data
         self._path = path
         self._layout = ZoneLayout(map_data.zones)
@@ -227,16 +236,16 @@ class TerminalUI:
 
     @property
     def turn(self) -> int:
-        """The turn on screen: being animated, or just completed."""
+        """Il turno sullo schermo: in animazione o appena finito."""
         return math.ceil(self._t - 1e-9)
 
     @property
     def progress(self) -> float:
-        """How far through `turn` the animation is, in (0, 1]."""
+        """Quanto è avanzata l'animazione di `turn`, in (0, 1]."""
         return 1.0 - (self.turn - self._t)
 
     def advance(self, seconds: float) -> None:
-        """Move the clock toward its target at the current speed."""
+        """Porta l'orologio verso il suo obiettivo alla velocità attuale."""
         step = seconds * 1000 / DELAYS_MS[self._speed]
         if self._t < self._target:
             self._t = min(self._target, self._t + step)
@@ -246,7 +255,7 @@ class TerminalUI:
             self._playing = False
 
     def _links(self, index: int) -> set[frozenset[str]]:
-        """Connections some drone is on during turn `index`."""
+        """Collegamenti su cui c'è qualche drone durante il turno `index`."""
         links: set[frozenset[str]] = set()
         if index == 0:
             return links
@@ -264,14 +273,14 @@ class TerminalUI:
         return links
 
     def _movers(self) -> set[int]:
-        """Drones that move during the turn on screen."""
+        """Droni che si muovono nel turno sullo schermo."""
         if self.turn == 0:
             return set()
         prev, cur = self._frames[self.turn - 1], self._frames[self.turn]
         return {d for d in cur if cur[d] != prev[d]}
 
     def _resting(self) -> dict[int, str]:
-        """Position of every drone not caught mid-move right now."""
+        """Posizione di ogni drone che in questo momento non è in movimento."""
         cur = self._frames[self.turn]
         if self.progress >= 1.0:
             return dict(cur)
@@ -281,7 +290,7 @@ class TerminalUI:
     # ----------------------------------------------------------- curses
 
     def run(self) -> None:
-        """Take over the terminal and replay until the user quits."""
+        """Prende il terminale e riproduce finché l'utente non esce."""
         try:
             locale.setlocale(locale.LC_ALL, "")
         except locale.Error:  # e.g. LANG names a locale not installed
@@ -289,7 +298,7 @@ class TerminalUI:
         curses.wrapper(self._loop)
 
     def _init_colors(self) -> None:
-        """Allocate one curses pair per color word the map may use."""
+        """Crea una coppia curses per ogni colore che la mappa può usare."""
         if not curses.has_colors():
             return
         try:
@@ -302,18 +311,18 @@ class TerminalUI:
             self._pairs[name] = curses.color_pair(index)
 
     def _color(self, word: str) -> int:
-        """Curses attribute for a color word; plain without colors."""
+        """Attributo curses per un colore; normale se i colori mancano."""
         return self._pairs.get(word, 0)
 
     @staticmethod
     def _zone_word(zone: Zone) -> str:
-        """A zone's color word: its `color=` if known, else its type's."""
+        """Colore di una zona: il suo `color=`, se no quello del tipo."""
         if zone.color in NAMED:
             return zone.color or ""
         return TYPE_COLOR[zone.zone_type]
 
     def _zone_attr(self, name: str) -> int:
-        """Curses attribute for a zone's name: its color, in bold."""
+        """Attributo curses per il nome di una zona: colore e grassetto."""
         attr = self._color(self._zone_word(self._map.zones[name]))
         attr |= curses.A_BOLD
         if name in (self._map.start.name, self._map.end.name):
@@ -324,7 +333,7 @@ class TerminalUI:
     def _put(
         screen: curses.window, row: int, col: int, text: str, attr: int = 0
     ) -> None:
-        """Write `text` if it fits; curses raises on the last cell."""
+        """Scrive `text` se ci sta; curses dà errore sull'ultima cella."""
         rows, cols = screen.getmaxyx()
         if not (0 <= row < rows and 0 <= col < cols):
             return
@@ -336,7 +345,7 @@ class TerminalUI:
     # ---------------------------------------------------------- drawing
 
     def draw(self, screen: curses.window) -> None:
-        """Render one frame: header, map, side panel and footer."""
+        """Disegna un fotogramma: intestazione, mappa, pannello e fondo."""
         screen.erase()
         rows, cols = screen.getmaxyx()
         self._cols = cols
@@ -365,7 +374,7 @@ class TerminalUI:
         screen.refresh()
 
     def _current(self) -> str:
-        """Picker name of the map on screen, or "" if it is not listed."""
+        """Nome nella lista della mappa sullo schermo, o "" se non c'è."""
         here = self._path.resolve()
         return next(
             (n for n, p in self._maps.items() if p.resolve() == here), ""
@@ -374,7 +383,7 @@ class TerminalUI:
     def _draw_picker(
         self, screen: curses.window, rows: int, cols: int
     ) -> None:
-        """The map list, framed over the middle of the screen."""
+        """La lista delle mappe, in un riquadro al centro dello schermo."""
         names = list(self._maps)
         current = self._current()
         width = min(cols - 2, max(max(len(n) for n in names) + 8, 58))
@@ -409,7 +418,7 @@ class TerminalUI:
         )
 
     def _panel_shown(self, cols: int) -> bool:
-        """Whether the side panel fits: the user's choice, else auto."""
+        """Se mostrare il pannello: la scelta dell'utente, se no automatico."""
         if cols - PANEL_W - 3 < max(MIN_COLS, self._layout.min_width):
             return False
         if self._panel is not None:
@@ -417,7 +426,7 @@ class TerminalUI:
         return self._layout.pitch(cols - PANEL_W - 3) >= PANEL_MIN_PITCH
 
     def _draw_header(self, screen: curses.window, cols: int) -> None:
-        """Title, turn counter, delivered bar and play state."""
+        """Titolo, turno, barra dei droni arrivati e stato di riproduzione."""
         delivered = sum(
             p == self._map.end.name for p in self._resting().values()
         )
@@ -446,11 +455,12 @@ class TerminalUI:
     def geometry(
         self, top: int, left: int, h: int, w: int
     ) -> tuple[dict[str, Cell], dict[str, str], dict[str, Cell], Paths]:
-        """Box corners, fitted names, box centres, and link paths.
+        """Angoli dei riquadri, nomi adattati, centri e percorsi dei link.
 
-        A link runs between the two box centres, and its path keeps only
-        the cells outside every box: lines stop at the borders, and a
-        drone gliding along one never paints over a zone.
+        Un link va dal centro di un riquadro all'altro, e il suo percorso
+        tiene solo le celle fuori da tutti i riquadri: le linee si fermano
+        ai bordi, e un drone che scorre lungo una linea non copre mai una
+        zona.
         """
         cell = self._layout.cells(top, left, h, w)
         box = self._layout.box_width(w)
@@ -476,12 +486,12 @@ class TerminalUI:
         return cell, labels, anchor, paths
 
     def drone_cells(self, paths: Paths) -> dict[int, Cell]:
-        """Where each drone off a zone is drawn: gliding, or mid-transit.
+        """Dove disegnare ogni drone fuori da una zona: in volo o a metà.
 
-        A drone moving `a -> b` walks the link's cells from `a`'s end;
-        `a -> a-b` (a transit's first turn) walks to the midpoint; `a-b
-        -> b` walks from the midpoint on. A drone resting in transit
-        waits at the midpoint.
+        Un drone che va `a -> b` percorre le celle del link partendo da
+        `a`; `a -> a-b` (primo turno di un viaggio) arriva fino a metà;
+        `a-b -> b` parte da metà. Un drone fermo durante un viaggio aspetta
+        a metà.
         """
         placed: dict[int, Cell] = {}
         cur = self._frames[self.turn]
@@ -500,7 +510,7 @@ class TerminalUI:
 
     @staticmethod
     def _route(src: str, dst: str, paths: Paths) -> list[Cell]:
-        """Cells a drone walks from `src` to `dst`, in walking order."""
+        """Celle che un drone percorre da `src` a `dst`, in ordine."""
         if "-" in dst:  # a -> a-b: first half of the link, to its midpoint
             origin, target = dst.split("-")
             line = paths[(origin, target)]
@@ -514,10 +524,11 @@ class TerminalUI:
     def _draw_map(
         self, screen: curses.window, top: int, left: int, h: int, w: int
     ) -> None:
-        """Links by traffic, zone boxes with their drones, drones in the air.
+        """Link in base al traffico, riquadri con i droni, droni in volo.
 
-        Lines are drawn centre to centre first; the boxes, drawn after
-        with blank interiors, cover the ends so each line meets a border.
+        Prima si disegnano le linee da centro a centro; i riquadri,
+        disegnati dopo con l'interno vuoto, coprono le estremità così ogni
+        linea tocca un bordo.
         """
         cell, labels, anchor, paths = self.geometry(top, left, h, w)
         active = self._turn_links[self.turn]
@@ -567,10 +578,10 @@ class TerminalUI:
         name: str,
         ids: list[int],
     ) -> None:
-        """A zone's frame: its name in the top border, a blank interior.
+        """Il bordo di una zona: il nome in alto, l'interno vuoto.
 
-        The border takes the zone's color, and turns red when the zone
-        is full, so bottlenecks show from across the map.
+        Il bordo ha il colore della zona e diventa rosso quando la zona è
+        piena, così i colli di bottiglia si vedono da tutta la mappa.
         """
         zone = self._map.zones[name]
         full = (
@@ -602,11 +613,11 @@ class TerminalUI:
         ids: list[int],
         movers: set[int],
     ) -> None:
-        """A box's middle row: its drones by number, then free slots.
+        """Riga centrale di un riquadro: i droni, poi i posti liberi.
 
-        Centred in the box. Drones that just arrived are yellow; a full
-        zone's drones are red. When the numbers do not fit, a count is
-        shown instead.
+        Centrata nel riquadro. I droni appena arrivati sono gialli; quelli
+        di una zona piena sono rossi. Se i numeri non ci stanno, viene
+        mostrato il conteggio.
         """
         zone = self._map.zones[name]
         if name in (self._map.start.name, self._map.end.name):
@@ -648,7 +659,7 @@ class TerminalUI:
         self._put(screen, row, x if ids else col, free, curses.A_DIM)
 
     def _draw_panel(self, screen: curses.window, x: int, rows: int) -> None:
-        """Fleet totals, this turn's moves and busy zones, in full names."""
+        """Totali della flotta, mosse del turno e zone occupate."""
         for row in range(HEADER_ROWS, rows - FOOTER_ROWS):
             self._put(screen, row, x - 1, "|", curses.A_DIM)
         counts = Counter(self._resting().values())
@@ -690,7 +701,7 @@ class TerminalUI:
             self._put(screen, HEADER_ROWS + i, x, text[:PANEL_W - 1], attr)
 
     def _moves(self) -> list[str]:
-        """Readable moves of the turn on screen, with full zone names."""
+        """Mosse leggibili del turno sullo schermo, con i nomi interi."""
         if self.turn == 0:
             return []
         before, after = self._frames[self.turn - 1], self._frames[self.turn]
@@ -710,7 +721,7 @@ class TerminalUI:
         return moves
 
     def _draw_footer(self, screen: curses.window, rows: int) -> None:
-        """Legend and key hints."""
+        """Legenda e tasti disponibili."""
         self._put(
             screen, rows - 2, 1,
             f"{TL}name{TR} zone with its drones  12 drone (yellow: moving)"
@@ -729,7 +740,7 @@ class TerminalUI:
     # ------------------------------------------------------------ input
 
     def _pick(self, key: int) -> None:
-        """A key while the map picker is open: move, load, or close."""
+        """Un tasto con la scelta mappa aperta: sposta, carica o chiudi."""
         names = list(self._maps)
         if key in (ord("m"), ord("q")):
             self._picking = False
@@ -750,7 +761,7 @@ class TerminalUI:
             self._picking = False
 
     def handle(self, key: int) -> bool:
-        """Apply one key press; return False to quit."""
+        """Gestisce la pressione di un tasto; restituisce False per uscire."""
         if self._picking:
             self._pick(key)
             return True
@@ -789,7 +800,7 @@ class TerminalUI:
         return True
 
     def _loop(self, screen: curses.window) -> None:
-        """Event loop: redraw, read a key, advance the clock."""
+        """Ciclo degli eventi: ridisegna, legge un tasto, avanza l'orologio."""
         try:
             curses.curs_set(0)
         except curses.error:  # terminal cannot hide the cursor: keep it

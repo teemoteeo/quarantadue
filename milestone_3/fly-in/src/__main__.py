@@ -1,4 +1,4 @@
-"""CLI entry point for the Fly-in drone simulation."""
+"""Punto d'ingresso da riga di comando della simulazione Fly-in."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .visual import TerminalVisualizer
 
 
 class SimulationReport:
-    """Computes and prints the secondary performance metrics for a run."""
+    """Calcola e stampa le statistiche secondarie di una simulazione."""
 
     def __init__(
         self,
@@ -26,13 +26,13 @@ class SimulationReport:
         timelines: list[list[str]],
         log: list[TurnLog],
     ) -> None:
-        """Bind the report to the map's zones, drone timelines, and log."""
+        """Collega il report alle zone, alle timeline dei droni e al log."""
         self._zones = zones
         self._timelines = timelines
         self._log = log
 
     def total_cost(self) -> float:
-        """Sum the movement cost of every zone each drone entered."""
+        """Somma il costo di ogni zona in cui è entrato ogni drone."""
         return sum(
             MOVE_COST[self._zones[pos].zone_type]
             for timeline in self._timelines
@@ -41,7 +41,7 @@ class SimulationReport:
         )
 
     def avg_turns_per_drone(self) -> float:
-        """Average turn at which each drone reached the end zone."""
+        """Turno medio in cui i droni hanno raggiunto la zona finale."""
         delivered_at: dict[int, int] = {}
         for turn_log in self._log:
             for move in turn_log.movements:
@@ -49,7 +49,7 @@ class SimulationReport:
         return sum(delivered_at.values()) / len(self._timelines)
 
     def print(self) -> None:
-        """Print the `--- Stats ---` block for this simulation run."""
+        """Stampa il blocco `--- Stats ---` di questa simulazione."""
         print("\n--- Stats ---")
         print(f"Total turns:   {len(self._log)}")
         print(f"Total drones:  {len(self._timelines)}")
@@ -58,12 +58,13 @@ class SimulationReport:
 
 
 class FlyInApplication:
-    """Orchestrates parsing, pathfinding, simulation and reporting.
+    """Coordina lettura della mappa, percorsi, simulazione e report.
 
-    This is the object-oriented pipeline behind the `fly-in` CLI: given a
-    map path and a visualization flag, it produces the process exit code
-    documented for the project (0 success, 1 file not found, 2 parse
-    error, 3 pathfinding error, 4 simulation error).
+    Questa è la pipeline a oggetti dietro il comando `fly-in`: dati il
+    percorso di una mappa e l'opzione di visualizzazione, restituisce il
+    codice di uscita previsto dal progetto (0 successo, 1 file non
+    trovato, 2 errore di parsing, 3 errore nei percorsi, 4 errore di
+    simulazione).
     """
 
     def __init__(
@@ -73,13 +74,13 @@ class FlyInApplication:
         visual: bool,
         tui: bool = False,
     ) -> None:
-        """Configure the run: the map, and which views to render."""
+        """Prepara l'esecuzione: la mappa e quali viste mostrare."""
         self._map_path = map_path
         self._visual = visual
         self._tui = tui
 
     def run(self) -> int:
-        """Execute the full pipeline and return the process exit code."""
+        """Esegue tutta la pipeline e restituisce il codice di uscita."""
         if not self._map_path.exists():
             print(
                 f"error: map file not found: {self._map_path}",
@@ -125,26 +126,26 @@ class FlyInApplication:
 
     @staticmethod
     def load(path: Path) -> tuple[MapFile, list[list[str]], list[TurnLog]]:
-        """Parse, plan and simulate one map: the whole pipeline.
+        """Legge, pianifica e simula una mappa: tutta la pipeline.
 
         Returns:
-            The parsed map, one planned timeline per drone, and the
-            simulation's turn log.
+            La mappa letta, una timeline pianificata per ogni drone e il
+            log dei turni della simulazione.
 
         Raises:
-            ParserError: The file is missing or invalid.
-            ValueError: No path leads from start to end.
-            RuntimeError: A plan broke a simulation rule.
+            ParserError: Il file manca o non è valido.
+            ValueError: Nessun percorso porta dall'inizio alla fine.
+            RuntimeError: Un piano ha violato una regola della simulazione.
         """
         map_data = MapParser().parse(path)
         timelines = FlightPlanner(map_data).plan()
         return map_data, timelines, SimulationEngine(map_data, timelines).run()
 
     def map_choices(self) -> dict[str, Path]:
-        """Maps the TUI offers to switch to, by display name.
+        """Mappe tra cui la TUI permette di scegliere, per nome.
 
-        Every map under `data/maps` when run from the project root,
-        otherwise the maps next to the current one.
+        Tutte le mappe in `data/maps` se lanciato dalla radice del progetto,
+        altrimenti le mappe nella stessa cartella di quella corrente.
         """
         root = Path("data/maps")
         if not root.is_dir():
@@ -158,7 +159,7 @@ class FlyInApplication:
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Build and apply the argparse CLI definition for `fly-in`."""
+    """Definisce e legge gli argomenti da riga di comando di `fly-in`."""
     parser = argparse.ArgumentParser(
         prog="fly-in",
         description="Multi-drone routing simulation through connected zones.",
@@ -182,7 +183,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Parse CLI arguments and run a :class:`FlyInApplication`."""
+    """Legge gli argomenti ed esegue una :class:`FlyInApplication`."""
     args = _parse_args(argv)
     try:
         return FlyInApplication(
