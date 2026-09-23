@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from .schemas import Connection, MapFile, Zone, ZoneType
+from .schemas import MapFile, Zone, ZoneType
 
 # Movement cost in turns for each zone type (destination-based cost).
 MOVE_COST: dict[ZoneType, float] = {
@@ -21,96 +21,34 @@ PRIORITY_BONUS: float = -0.01
 class ZoneGraph:
     """Adjacency-list representation of the drone zone network.
 
-    Provides neighbours lookup, movement cost queries, and capacity tracking.
+    Answers the only two questions pathfinding asks: which zones
+    neighbour this one, and what it costs to enter a zone. Capacity is
+    deliberately absent — it lives on the parsed :class:`MapFile` and is
+    enforced by :class:`~src.simulation.SimulationEngine`, which reads it
+    from there directly.
     """
 
     def __init__(self, map_file: MapFile) -> None:
         """Build the bidirectional adjacency list from a parsed map."""
-        self._map_start = map_file.start
-        self._map_end = map_file.end
-        self._zones: dict[str, Zone] = dict(map_file.zones)
-        self._adj: dict[str, list[tuple[str, Connection]]] = (
-            self._build_adjacency(map_file.connections)
-        )
-        self._conn_metadata: dict[tuple[str, str], Connection] = {}
+        self._zones: dict[str, Zone] = map_file.zones
+        self._adj: dict[str, list[str]] = defaultdict(list)
         for conn in map_file.connections:
-            key = (min(conn.from_zone, conn.to_zone),
-                   max(conn.from_zone, conn.to_zone))
-            self._conn_metadata[key] = conn
+            self._adj[conn.from_zone].append(conn.to_zone)
+            self._adj[conn.to_zone].append(conn.from_zone)
 
-    @staticmethod
-    def _build_adjacency(
-        connections: list[Connection],
-    ) -> dict[str, list[tuple[str, Connection]]]:
-        """Expand each connection into both directed adjacency entries."""
-        adj: dict[str, list[tuple[str, Connection]]] = defaultdict(list)
-        for conn in connections:
-            adj[conn.from_zone].append((conn.to_zone, conn))
-            # reverse direction (same metadata applies)
-            rev = Connection(
-                from_zone=conn.to_zone,
-                to_zone=conn.from_zone,
-                metadata=conn.metadata,
-            )
-            adj[conn.to_zone].append((conn.from_zone, rev))
-        return adj
-
-    @property
-    def zones(self) -> dict[str, Zone]:
-        """All zones in the network, keyed by name."""
-        return self._zones
-
-    def neighbours(self, zone_name: str) -> list[tuple[str, float, int]]:
-        """Return (name, weight, capacity) for each reachable neighbour."""
-        results: list[tuple[str, float, int]] = []
-        for neigh, conn in self._adj.get(zone_name, []):
-            dest = self._zones.get(neigh)
-            if dest is None:
+    def neighbours(self, zone_name: str) -> list[tuple[str, float]]:
+        """Return (name, cost to enter) for each reachable neighbour."""
+        results: list[tuple[str, float]] = []
+        for neigh in self._adj.get(zone_name, []):
+            dest = self._zones[neigh]
+            if dest.zone_type == "blocked":
                 continue
-            if dest.metadata.zone == "blocked":
-                continue
-            cost = MOVE_COST[dest.metadata.zone]
-            if dest.metadata.zone == "priority":
+            cost = MOVE_COST[dest.zone_type]
+            if dest.zone_type == "priority":
                 cost += PRIORITY_BONUS
-            capacity = conn.metadata.max_link_capacity
-            results.append((neigh, float(cost), capacity))
+            results.append((neigh, cost))
         return results
 
     def zone_type(self, name: str) -> ZoneType:
-        """Return the zone type for `name`, defaulting to normal."""
-        zone = self._zones.get(name)
-        if zone is None:
-            return "normal"
-        return zone.metadata.zone
-
-    def zone_capacity(self, name: str) -> int:
-        """Return the max simultaneous drones allowed in zone `name`."""
-        zone = self._zones.get(name)
-        if zone is None:
-            return 0
-        return zone.metadata.max_drones
-
-    def zone_color(self, name: str) -> str | None:
-        """Return the display color configured for zone `name`, if any."""
-        zone = self._zones.get(name)
-        if zone is None:
-            return None
-        return zone.metadata.color
-
-    def connection_capacity(self, a: str, b: str) -> int:
-        """Return the max simultaneous drones allowed on connection a-b."""
-        key = (min(a, b), max(a, b))
-        conn = self._conn_metadata.get(key)
-        if conn is None:
-            return 1
-        return conn.metadata.max_link_capacity
-
-    @property
-    def start_name(self) -> str:
-        """Name of the map's unique start zone."""
-        return self._map_start.name
-
-    @property
-    def end_name(self) -> str:
-        """Name of the map's unique end zone."""
-        return self._map_end.name
+        """Return the zone type for `name`."""
+        return self._zones[name].zone_type

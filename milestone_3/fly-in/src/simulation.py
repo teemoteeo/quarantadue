@@ -14,14 +14,17 @@ Key rules from the subject:
 - Drones moving out of a zone free up capacity for that SAME turn.
 - Zone capacity is checked AFTER departures are accounted for.
 - Restricted zone transit: drone occupies connection, must arrive next turn.
-- Blocked zones are never entered (parser prevents, pathfinding excludes).
+- Blocked zones are never entered (pathfinding excludes them).
 """
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from itertools import permutations
+
 from .schemas import MapFile
 
 
@@ -42,7 +45,25 @@ class Drone:
     state: DroneState = DroneState.WAITING
     path: list[str] = field(default_factory=list)
     path_index: int = 0
-    flight_connection: str = ""
+
+
+@dataclass(frozen=True)
+class Movement:
+    """One drone's destination on a single turn.
+
+    `destination` is a zone name, or an `origin-dest` connection name
+    while the drone is in transit toward a restricted zone. Keeping the
+    drone id as a field rather than baking it into a string means
+    consumers read it directly instead of re-parsing the rendered token,
+    which is ambiguous for connection names (``D3-a-b``).
+    """
+
+    drone_id: int
+    destination: str
+
+    def __str__(self) -> str:
+        """Render the subject's `D<id>-<destination>` output token."""
+        return f"D{self.drone_id}-{self.destination}"
 
 
 @dataclass
@@ -50,7 +71,7 @@ class TurnLog:
     """The set of drone movements that occurred during one simulation turn."""
 
     turn: int
-    movements: list[str]
+    movements: list[Movement]
 
 
 class SimulationEngine:
@@ -59,6 +80,9 @@ class SimulationEngine:
     Given a parsed map and one path per drone, advances the simulation
     turn by turn (see :meth:`step`), enforcing zone and connection
     capacity, restricted-zone transit timing, and deadlock detection.
+
+    Every turn either moves a drone forward along its finite path or
+    raises, so :meth:`run` always terminates.
     """
 
     def __init__(
@@ -74,56 +98,42 @@ class SimulationEngine:
                 at the map's start zone.
         """
         self._nb_drones = map_file.nb_drones
-        self._start_name = map_file.start.name
         self._end_name = map_file.end.name
 
-        self._zone_capacity: dict[str, int] = {}
-        self._zone_occupancy: dict[str, int] = {}
-        self._zone_type: dict[str, str] = {}
-
-        for name, zone in map_file.zones.items():
-            self._zone_capacity[name] = zone.metadata.max_drones
-            self._zone_occupancy[name] = 0
-            self._zone_type[name] = zone.metadata.zone
+        zones = map_file.zones
+        self._zone_capacity = {n: z.max_drones for n, z in zones.items()}
+        self._zone_type = {n: z.zone_type for n, z in zones.items()}
+        self._zone_occupancy = dict.fromkeys(zones, 0)
 
         # Start/end have unlimited capacity
-        self._zone_capacity[map_file.start.name] = 99999
-        self._zone_capacity[map_file.end.name] = 99999
-        self._zone_type[map_file.start.name] = "normal"
-        self._zone_type[map_file.end.name] = "normal"
+        self._zone_capacity[map_file.start.name] = map_file.nb_drones
+        self._zone_capacity[map_file.end.name] = map_file.nb_drones
         self._zone_occupancy[map_file.start.name] = map_file.nb_drones
 
         self._conn_capacity: dict[tuple[str, str], int] = {}
         for conn in map_file.connections:
             key = self._link_key(conn.from_zone, conn.to_zone)
-            self._conn_capacity[key] = conn.metadata.max_link_capacity
+            self._conn_capacity[key] = conn.max_link_capacity
 
-        self._drones: dict[int, Drone] = {}
-        for i in range(map_file.nb_drones):
-            drone_id = i + 1
-            path = drone_paths[i]
-            drone = Drone(
+        # Dict order is drone-id order, which keeps every turn deterministic.
+        self._drones: dict[int, Drone] = {
+            drone_id: Drone(
                 drone_id=drone_id,
                 position=map_file.start.name,
                 path=list(path),
                 path_index=1,  # next zone to move to (index 0 is start)
             )
-            self._drones[drone_id] = drone
+            for drone_id, path in enumerate(drone_paths, start=1)
+        }
 
         self._turn: int = 0
         self._log: list[TurnLog] = []
-        self._deadlock_counter: int = 0
         self._completed: bool = False
 
     @staticmethod
     def _link_key(a: str, b: str) -> tuple[str, str]:
         """Return a direction-independent key identifying a connection."""
         return (min(a, b), max(a, b))
-
-    @property
-    def turn(self) -> int:
-        """The number of turns simulated so far."""
-        return self._turn
 
     @property
     def delivered_count(self) -> int:
@@ -133,8 +143,8 @@ class SimulationEngine:
             if d.state == DroneState.DELIVERED
         )
 
-    def step(self) -> bool:
-        """Advance one simulation turn. Returns True if simulation complete.
+    def step(self) -> None:
+        """Advance the simulation by one turn.
 
         Zone capacity for a restricted-zone destination is reserved the
         moment a drone departs toward it (when it becomes IN_FLIGHT), not
@@ -145,10 +155,10 @@ class SimulationEngine:
         below is what prevents that.
         """
         if self._completed:
-            return True
+            return
 
         self._turn += 1
-        movements: list[str] = []
+        movements: list[Movement] = []
 
         # Track which zones drones are leaving (for capacity calculation)
         departures: dict[str, int] = defaultdict(int)
@@ -159,52 +169,43 @@ class SimulationEngine:
         # Their destination capacity was already reserved when they departed
         # (see Phase 2), and their origin zone was already freed at that
         # same time, so this phase only updates position/state — it must
-        # not touch occupancy again.
+        # not touch occupancy again. They are still on the connection
+        # this turn, though, so they count against its capacity.
         arrived_this_turn: set[int] = set()
-        for drone in sorted(self._drones.values(), key=lambda d: d.drone_id):
+        for drone in self._drones.values():
             if drone.state != DroneState.IN_FLIGHT:
                 continue
 
             next_pos = drone.path[drone.path_index]
+            conn_usage[self._link_key(drone.position, next_pos)] += 1
             drone.position = next_pos
             drone.path_index += 1
-            drone.flight_connection = ""
 
             if next_pos == self._end_name:
                 drone.state = DroneState.DELIVERED
             else:
                 drone.state = DroneState.WAITING
                 arrived_this_turn.add(drone.drone_id)
-            movements.append(f"D{drone.drone_id}-{next_pos}")
+            movements.append(Movement(drone.drone_id, next_pos))
 
         # === Phase 2: WAITING drones attempt to move ===
-        # Process in drone ID order for determinism
-        for drone in sorted(self._drones.values(), key=lambda d: d.drone_id):
+        for drone in self._drones.values():
             if drone.state != DroneState.WAITING:
                 continue
             if drone.drone_id in arrived_this_turn:
                 continue  # just arrived, can't move again this turn
-            if drone.path_index >= len(drone.path):
-                continue
 
             next_pos = drone.path[drone.path_index]
-            dest_type = self._zone_type.get(next_pos, "normal")
 
             # Effective occupancy = current occupancy - drones leaving
             effective_occ = (
-                self._zone_occupancy.get(next_pos, 0)
-                - departures.get(next_pos, 0)
+                self._zone_occupancy[next_pos] - departures[next_pos]
             )
-            max_cap = self._zone_capacity.get(next_pos, 1)
-
-            if effective_occ >= max_cap:
+            if effective_occ >= self._zone_capacity[next_pos]:
                 continue
 
-            # Check connection capacity
             link_key = self._link_key(drone.position, next_pos)
-            link_cap = self._conn_capacity.get(link_key, 1)
-            link_used = conn_usage[link_key]
-            if link_used >= link_cap:
+            if conn_usage[link_key] >= self._conn_capacity[link_key]:
                 continue
 
             conn_usage[link_key] += 1
@@ -214,54 +215,42 @@ class SimulationEngine:
             # this applies to restricted destinations too, since without
             # it multiple drones could depart toward the same
             # capacity-limited restricted zone on the same turn.
-            self._zone_occupancy[next_pos] = (
-                self._zone_occupancy.get(next_pos, 0) + 1
-            )
+            self._zone_occupancy[next_pos] += 1
 
-            if dest_type == "restricted":
+            if self._zone_type[next_pos] == "restricted":
                 # 2-turn move: start transit, arrive next turn.
                 # `position` intentionally stays at the origin zone until
                 # Phase 1 of the next turn resolves the arrival.
                 drone.state = DroneState.IN_FLIGHT
-                drone.flight_connection = \
-                    f"{drone.position}-{next_pos}"
-                movements.append(f"D{drone.drone_id}-"
-                                 f"{drone.flight_connection}")
+                movements.append(
+                    Movement(
+                        drone.drone_id, f"{drone.position}-{next_pos}"
+                    )
+                )
             else:
                 # 1-turn move: arrive immediately
                 drone.position = next_pos
                 drone.path_index += 1
                 if next_pos == self._end_name:
                     drone.state = DroneState.DELIVERED
-                movements.append(f"D{drone.drone_id}-{next_pos}")
+                movements.append(Movement(drone.drone_id, next_pos))
 
-        # Apply remaining departures from Phase 2
         for zone_name, count in departures.items():
-            prev_occ = self._zone_occupancy.get(zone_name, 0)
-            new_occ = prev_occ - count
-            self._zone_occupancy[zone_name] = max(0, new_occ)
+            self._zone_occupancy[zone_name] -= count
 
         # === Phase 3: Deadlock detection ===
-        active = [
-            d for d in self._drones.values()
-            if d.state not in (DroneState.DELIVERED,)
-        ]
-        if not movements and active:
-            self._deadlock_counter += 1
-            if self._deadlock_counter > 10:
-                raise RuntimeError(
-                    f"Deadlock at turn {self._turn}: "
-                    f"{len(active)} active drones all blocked"
-                )
-        else:
-            self._deadlock_counter = 0
+        # Nothing moved, so nothing changed: every later turn would be
+        # this same empty one.
+        if not movements:
+            raise RuntimeError(
+                f"Deadlock at turn {self._turn}: "
+                f"{self._nb_drones - self.delivered_count} drones all blocked"
+            )
 
-        # === Check completion ===
         if self.delivered_count >= self._nb_drones:
             self._completed = True
 
         self._log.append(TurnLog(turn=self._turn, movements=movements))
-        return self._completed
 
     def run(self) -> list[TurnLog]:
         """Step the simulation until all drones are delivered.
@@ -270,14 +259,109 @@ class SimulationEngine:
             The full per-turn movement log.
 
         Raises:
-            RuntimeError: On a persistent deadlock, or if the simulation
-                exceeds a sanity-check turn cap.
+            RuntimeError: On a deadlock.
         """
-        max_turns = 10000
         while not self._completed:
             self.step()
-            if self._turn > max_turns:
-                raise RuntimeError(
-                    f"Simulation exceeded {max_turns} turns"
-                )
         return self._log
+
+
+class RouteScheduler:
+    """Decides how many drones take each candidate route.
+
+    The routes pathfinding returns are not independent — they share
+    zones — so "spreading the fleet" can buy contention instead of
+    parallelism, and the cheapest route is not always the wrong one to
+    pile onto. Rather than estimate that with a cost model, this
+    scheduler *runs* the simulation to score a candidate split: the
+    engine is the only thing that knows about zone capacity, shared
+    zones and restricted-zone timing, and one run is cheap enough to
+    call in a loop.
+
+    It starts with every drone on the cheapest route, then moves `step`
+    drones between routes for as long as that lowers the score, halving
+    `step` (from half the fleet down to one) whenever no move helps. The
+    score is total turns, ties broken by the sum of every drone's
+    delivery turn: draining the longest queue into an empty route only
+    pays off one move later, and the tie-break is what takes that step.
+    """
+
+    def __init__(self, map_file: MapFile, routes: list[list[str]]) -> None:
+        """Bind the scheduler to a map and its candidate routes.
+
+        Raises:
+            ValueError: If pathfinding found no route at all.
+        """
+        if not routes:
+            raise ValueError(
+                f"No path from {map_file.start.name!r} "
+                f"to {map_file.end.name!r}"
+            )
+        self._map = map_file
+        self._routes = routes
+
+    def assign(self) -> list[list[str]]:
+        """Return one route per drone, chosen to minimise total turns."""
+        split = [self._map.nb_drones] + [0] * (len(self._routes) - 1)
+        best = self._score(split)
+        step = max(1, self._map.nb_drones // 2)
+        while step:
+            improved = False
+            for source, target in permutations(range(len(self._routes)), 2):
+                if split[source] < step:
+                    continue
+                trial = list(split)
+                trial[source] -= step
+                trial[target] += step
+                score = self._score(trial)
+                if score < best:
+                    best, split, improved = score, trial, True
+                    break
+            if not improved:
+                step //= 2
+        return self._paths(split)
+
+    def _paths(self, split: list[int]) -> list[list[str]]:
+        """Expand a per-route drone count into one path per drone."""
+        return [
+            list(self._routes[index])
+            for index, count in enumerate(split)
+            for _ in range(count)
+        ]
+
+    def _score(self, split: list[int]) -> tuple[float, float]:
+        """(total turns, sum of delivery turns); infinite on deadlock."""
+        try:
+            log = SimulationEngine(self._map, self._paths(split)).run()
+        except RuntimeError:
+            return math.inf, math.inf
+        delivered_at = {
+            move.drone_id: turn.turn
+            for turn in log for move in turn.movements
+        }
+        return len(log), sum(delivered_at.values())
+
+
+class SimulationFilm:
+    """Replays a turn log into one drone-position snapshot per turn.
+
+    A position is a zone name, or an `origin-dest` connection name while
+    a drone is in transit toward a restricted zone. Drones omitted from
+    a turn line keep the position they held on the previous turn.
+    """
+
+    def __init__(self, log: list[TurnLog], start: str, nb_drones: int) -> None:
+        """Bind the film to a turn log, the start zone, and drone count."""
+        self._log = log
+        self._start = start
+        self._nb_drones = nb_drones
+
+    def frames(self) -> list[dict[int, str]]:
+        """Return frame 0 (all drones at start) plus one frame per turn."""
+        current = {i: self._start for i in range(1, self._nb_drones + 1)}
+        frames = [dict(current)]
+        for turn in self._log:
+            for move in turn.movements:
+                current[move.drone_id] = move.destination
+            frames.append(dict(current))
+        return frames

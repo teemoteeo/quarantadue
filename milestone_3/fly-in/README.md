@@ -16,9 +16,9 @@ The simulation uses a **turn-based discrete-event engine** backed by a pathfindi
 
 1. **Graph parsing**: Reads the custom `.map` format (zones, connections, metadata)
 2. **Shortest-path computation**: Weighted graph traversal respecting zone costs; priority zones are preferred despite having the same base cost as normal zones
-3. **Multi-drone scheduling**: Distributes drones across disjoint or minimally-overlapping paths to maximize throughput
+3. **Multi-drone scheduling**: Splits the fleet over several candidate routes, scoring each split by actually running the simulation
 4. **Turn-by-turn simulation**: Evaluates capacity, connection limits, and in-flight status each tick
-5. **Visual representation**: Colored terminal output showing drone positions and zone states
+5. **Visual representation**: Colored terminal output and an animated terminal UI, both driven by the same turn log
 
 ### Zone Types
 
@@ -35,7 +35,7 @@ The simulation uses a **turn-based discrete-event engine** backed by a pathfindi
 - Weighted shortest-path algorithm (no external graph libraries)
 - Multi-drone simultaneous movement with capacity-aware scheduling
 - Deadlock detection and strategic waiting
-- Colored terminal visualization
+- Two views over one turn log: colored movement log, animated curses TUI
 - Performance scoring (total turns, average turns per drone, path cost)
 
 ### Object-Oriented Architecture
@@ -46,19 +46,28 @@ composed together by `FlyInApplication` (`src/__main__.py`):
 | Class | File | Responsibility |
 |-------|------|-----------------|
 | `MapParser` | `src/parser.py` | Line-by-line grammar, metadata validation, and semantic checks (uniqueness, referential integrity) |
-| `ZoneGraph` | `src/graph.py` | Adjacency list, per-zone movement cost, and capacity lookups |
+| `ZoneGraph` | `src/graph.py` | Adjacency list and per-zone movement cost (capacity lives on the parsed map, read directly by the engine) |
 | `PathFinder` | `src/pathfinding.py` | Weighted Dijkstra and k-distinct-path search over a `ZoneGraph` |
+| `RouteScheduler` | `src/simulation.py` | Decides how many drones take each candidate route, scoring a split by running the engine |
 | `SimulationEngine` | `src/simulation.py` | Turn-by-turn movement, capacity enforcement, and deadlock detection |
 | `TerminalVisualizer` | `src/visual.py` | Renders a turn log as colored (or plain) terminal text |
+| `SimulationFilm` | `src/simulation.py` | Replays a turn log into one drone-position snapshot per turn (pure, display-free) |
+| `ZoneLayout` | `src/tui.py` | Places zones and connection glyphs on a character grid (pure, curses-free) |
+| `TerminalUI` | `src/tui.py` | Animates the film over that grid with curses |
 | `SimulationReport` | `src/__main__.py` | Computes the secondary scoring metrics (path cost, avg turns/drone) |
 | `FlyInApplication` | `src/__main__.py` | Orchestrates the above and maps failures to the documented exit codes |
 
 `ParserError` is a small custom exception carrying the offending line
-number, and `Drone`/`TurnLog` (in `src/simulation.py`) are dataclasses
-holding per-drone and per-turn state. No module-level business logic
-lives outside a class — the only free functions are the CLI's
+number, and `Drone`/`Movement`/`TurnLog` (in `src/simulation.py`) plus the
+models in `src/schemas.py` are stdlib dataclasses holding per-drone,
+per-turn and parsed-map state. No module-level business logic lives
+outside a class — the only free functions are the CLI's
 `main()`/`_parse_args()`, the conventional thin entry point for a
 Python script.
+
+The project has no runtime dependencies: the domain models are stdlib
+dataclasses, validated by the parser's own grammar rather than by a
+validation library re-checking what the grammar already guarantees.
 
 ## Instructions
 
@@ -72,36 +81,50 @@ Python script.
 ```bash
 make install
 # or
-uv sync
+uv sync --frozen
 ```
+
+`uv.lock` is committed and `--frozen` refuses to re-resolve it, so every
+clone installs the exact same dev toolchain (the project itself has no
+runtime dependencies).
 
 ### Usage
 
-Run the simulation with a map file:
+Run the simulation with a map file (`make run` defaults to
+`data/maps/hard/03_ultimate_challenge.txt`, colored):
 
 ```bash
-make run MAP=data/maps/easy_01.map
+make run MAP=data/maps/easy/01_linear_path.txt
+# or, uncolored
+uv run python -m src data/maps/easy/01_linear_path.txt
+```
+
+Colored output is on by default in `make run`; pass `VISUAL_FLAG=` for
+plain text, or `--visual` when calling the module directly.
+
+Replay it as an animated terminal UI (curses, works over ssh):
+
+```bash
+make tui MAP=data/maps/hard/01_maze_nightmare.txt
 # or
-uv run python -m src data/maps/easy_01.map
+uv run python -m src data/maps/hard/01_maze_nightmare.txt --tui
 ```
 
-Run with visual output (colored terminal):
-
-```bash
-make run MAP=data/maps/easy_01.map VISUAL=true
-```
+Exit codes: `0` success, `1` map file not found, `2` parse error,
+`3` no path from start to end, `4` simulation error (deadlock),
+`130` interrupted with Ctrl-C.
 
 ### Debug Mode
 
 ```bash
-make debug MAP=data/maps/easy_01.map
+make debug MAP=data/maps/easy/01_linear_path.txt
 ```
 
 ### Linting
 
 ```bash
-make lint       # flake8 + mypy (standard)
-make lint-strict # flake8 + mypy --strict
+make lint          # flake8 . + mypy with the subject's flags
+make lint-strict   # flake8 . + mypy --strict
 ```
 
 ### Testing
@@ -147,32 +170,67 @@ The core algorithm computes weighted shortest paths using a modified Dijkstra/BF
 - **Blocked zones**: infinite cost (excluded from graph)
 - **Capacity constraints**: accounted for at the simulation layer, not the pathfinding layer
 
+### Candidate Routes
+
+`PathFinder.k_shortest_paths` collects up to `nb_drones` distinct routes:
+
+1. the cheapest route (Dijkstra, priority zones nudged 0.01 cheaper so
+   they win ties);
+2. for each edge of that route, the cheapest route avoiding just that
+   edge — detours that share most of the main route;
+3. then, repeatedly, the cheapest route avoiding *every* edge found so
+   far — edge-disjoint parallel corridors that a one-edge detour never
+   reaches.
+
 ### Multi-Drone Scheduling
 
-Paths are computed independently for each drone in priority order, with the simulation engine resolving conflicts at each turn:
+`RouteScheduler` decides how many drones take each route. It does not
+*estimate* the cost of a split — it **runs the simulation** to score it.
+The engine is the only thing that knows about zone capacity, shared
+zones and restricted-zone timing, and a run is cheap.
 
-1. Compute shortest paths for all drones
-2. At each turn, evaluate which drones can move given:
-   - Zone capacity (incoming zone must have room after departures)
-   - Connection capacity (link can't exceed `max_link_capacity`)
-   - In-flight status (restricted zone transit must complete next turn)
-3. Drones that cannot move wait in place
-4. Simulation ends when all drones reach the end zone
+It starts with every drone on the cheapest route, then moves `step`
+drones from one route to another whenever that lowers the score,
+halving `step` (from half the fleet down to one) when no move helps.
+The score is the total turn count, ties broken by the sum of every
+drone's delivery turn. The tie-break matters: with three equal
+corridors and the split at `[15, 15, 0]`, moving one drone never lowers
+the longest queue, but it does lower the total, and that step is what
+leads on to `[10, 10, 10]`.
+
+Starting with big steps keeps it fast: 1000 drones over two routes are
+scheduled in under 2 seconds, where moving one drone at a time took 80.
+
+**Execution.**
+
+1. At each turn, drones in flight toward a restricted zone arrive (they
+   still count against their connection's capacity that turn).
+2. Every other drone tries its next zone, in drone-id order:
+   - the zone must have room after this turn's departures;
+   - the connection must have room, counting drones still on it;
+   - a restricted destination reserves its slot on departure, so the
+     drone is guaranteed to land next turn.
+3. Drones that cannot move wait in place.
+4. A turn in which nothing moves is a deadlock: the state cannot change
+   any more, so the engine raises instead of spinning.
 
 ### Performance Benchmarks
 
-| Difficulty | Map | Drones | Target (turns) |
-|------------|-----|--------|----------------|
-| Easy | Linear path | 2 | ≤ 6 |
-| Easy | Simple fork | 4 | ≤ 8 |
-| Easy | Basic capacity | 4 | ≤ 6 |
-| Medium | Dead end trap | 5 | ≤ 12 |
-| Medium | Circular loop | 6 | ≤ 15 |
-| Medium | Priority puzzle | 5 | ≤ 12 |
-| Hard | Maze nightmare | 8 | ≤ 30 |
-| Hard | Capacity hell | 12 | ≤ 35 |
-| Hard | Ultimate challenge | 15 | ≤ 45 |
-| Challenger | The Impossible Dream | 25 | < 45 |
+Every output below is checked by an independent rule validator (zone and
+connection capacity per turn, adjacency, 2-turn restricted moves).
+
+| Difficulty | Map | Drones | Target (turns) | Achieved |
+|------------|-----|--------|----------------|----------|
+| Easy | Linear path | 2 | ≤ 6 | 4 |
+| Easy | Simple fork | 4 | ≤ 8 | 5 |
+| Easy | Basic capacity | 4 | ≤ 6 | 4 |
+| Medium | Dead end trap | 5 | ≤ 12 | 8 |
+| Medium | Circular loop | 6 | ≤ 15 | 15 |
+| Medium | Priority puzzle | 5 | ≤ 12 | 7 |
+| Hard | Maze nightmare | 8 | ≤ 30 | 13 |
+| Hard | Capacity hell | 12 | ≤ 35 | 16 |
+| Hard | Ultimate challenge | 15 | ≤ 45 | 26 |
+| Challenger | The Impossible Dream | 25 | 45 (record) | 66 |
 
 ## Design Decisions
 
@@ -182,7 +240,7 @@ A turn-based discrete-event model simplifies conflict resolution: at each tick, 
 
 ### Why Separate Pathfinding from Scheduling?
 
-Shortest paths are computed once per drone (or cached and re-evaluated on capacity changes). The simulation engine handles runtime conflicts — this separation keeps the pathfinding algorithm simple and the scheduling logic focused.
+Routes are computed once, before the simulation starts, and never recomputed: each drone follows a fixed path and simply waits when its next zone or connection is full. Pathfinding only knows about costs; capacity is handled by the engine and, through it, by the scheduler's scoring. That keeps Dijkstra plain and puts every capacity rule in one place.
 
 ### Why No External Graph Libraries?
 
@@ -190,25 +248,81 @@ The subject explicitly forbids `networkx`, `graphlib`, etc. The entire graph rep
 
 ## Visual Representation
 
-`TerminalVisualizer` (`src/visual.py`) renders the turn log produced by
-`SimulationEngine` as ANSI-colored terminal text when `--visual` (or
-`make run VISUAL=true`) is passed, and as identical but uncolored text
-otherwise — the same rendering path is used either way, so `--visual`
-never changes *what* is shown, only whether it's colorized.
+The subject asks for visual feedback through colored terminal output or a
+graphical interface. This project ships two terminal views — a colored
+movement log and an animated full-screen UI — both driven by the **same**
+`TurnLog` the engine produces, so they can never disagree about what
+happened. Staying in the terminal is deliberate: it works over ssh and on
+a machine with no Tk installed, which is where this gets demonstrated.
 
-- Each `D<id>-<destination>` movement token is highlighted in bold blue,
-  making it easy to visually track a single drone's progress down a
-  turn-by-turn log without reading every token.
-- Headers (`=== Fly-in Simulation ===`, the final `Total turns:` line)
-  are bolded to separate the simulation trace from the stats block that
-  follows it.
-- Turns with no drone movement print `(no movement)` instead of an
-  empty line, so a reader scanning the log can immediately tell "the
-  simulation is waiting on capacity" apart from "a turn was skipped".
+### Terminal (`src/visual.py`, `--visual`)
 
-This keeps the enhancement lightweight (no extra dependency, works in
-any ANSI-capable terminal) while directly answering the subject's ask
-for visual feedback of drone positions and zone states over time.
+`TerminalVisualizer` renders the turn log as ANSI-colored text when
+`--visual` is passed, and as identical but uncolored text otherwise —
+the same rendering path is used either way, so `--visual` never changes
+*what* is shown, only whether it's colorized. After a header and a
+legend, each turn is one line in exactly the subject's format
+(`D1-roof1 D2-corridorA`), followed by a `--- Stats ---` block.
+
+- Each `D<id>-<destination>` token is painted with its **destination
+  zone's `color=` metadata**, falling back to a per-zone-type color
+  (priority green, restricted red, blocked gray, normal blue) when a
+  zone declares none. A turn line therefore shows both who moved and
+  what kind of zone they entered, rather than a uniform highlight.
+- A legend line names every zone in its own color with a state marker
+  (`*` priority, `!` restricted, `x` blocked), so the map's topology is
+  readable without opening the `.map` file.
+
+### Terminal UI (`src/tui.py`, `--tui`)
+
+`TerminalUI` draws the whole network on a character grid with `curses` —
+zones placed at their `x y` coordinates, connections drawn as stepped
+`-`, `|`, `/`, `\` runs between them (the glyph comes from each step,
+so a shallow link reads as dashes with a drop rather than a blob of
+backslashes) — and animates the drones over it. `curses`
+ships with CPython on Unix, so this adds **no** runtime dependency and,
+unlike a window, it works over ssh and on a machine with no Tk
+installed.
+
+```
+                       /--m12--------m13[2]
+                 /-----    4         3 \-
+  hub-----m1[2]----m10-----m11-----m8!------m9*[2]-\goal
+  6 7 8-  5                        |                1 2
+            \-m2-------m3!     m6[2]---m7
+                       |       |
+                       m4------m5*
+* priority  ! restricted  x blocked  [N] capacity
+Turn 5/11   delivered 2/8   [space] pause  [<-/->] step  [r] replay  [q] quit
+```
+
+- Zone labels carry their state marker (`*` priority, `!` restricted,
+  `x` blocked) and their `[max_drones]` capacity; start and end hubs are
+  drawn in reverse video; each zone takes its `color=`, falling back to
+  its zone-type color.
+- The drone ids parked in a zone are printed directly beneath it, so a
+  queue building at a bottleneck is visible as a growing row of numbers
+  rather than something to infer from a log. At the right margin the row
+  shifts left to stay on screen — the end hub is the last column and
+  collects the whole fleet, so a queue there is wider than the label it
+  sits under.
+- A drone in transit toward a restricted zone is printed at the midpoint
+  of the connection it occupies — the 2-turn cost becomes a position on
+  screen instead of a `D3-a-b` token to decode.
+- Space pauses, the arrow keys step a turn at a time, `r` replays, `q`
+  quits. Stepping *backwards* is what makes a capacity stall
+  inspectable. The status bar shows `Turn n/N` and the delivered count.
+- Below 60x14 the UI says so instead of drawing garbage; it re-reads the
+  terminal size every frame, so resizing mid-replay re-lays-out, and it
+  drops the key hints rather than chopping them when the window is too
+  narrow for the whole status line.
+
+The shared logic is display-free and therefore unit-tested headlessly:
+`SimulationFilm` turns the log into one drone-position snapshot per
+turn, and `ZoneLayout` does the coordinate scaling and line-glyph
+choice, leaving `TerminalUI` as pure drawing. If the terminal cannot
+host the UI (no tty, no `TERM`), the CLI prints a warning and still
+exits 0 — the simulation itself already succeeded.
 
 ## Challenges
 
@@ -218,11 +332,18 @@ Drones moving to a restricted zone occupy the connection for 2 turns and **must*
 
 ### Deadlock Prevention
 
-When multiple drones converge on a bottleneck (single-capacity zone), they can deadlock. The scheduler detects cycles where all drones are waiting for each other and introduces strategic delays.
+Drones never reroute, so if two drones need each other's zone, nothing
+can ever move again. The engine detects this on the first turn with no
+movement and raises; the scheduler treats a deadlocking split as
+infinitely bad and never picks it, so a deadlock only reaches the user
+if every candidate split deadlocks.
 
-### Capacity-Aware Pathfinding
+### Connections in Transit
 
-Recomputing paths when capacity fills up adds complexity. The implementation may use path caching with invalidation on capacity changes or dynamic re-routing.
+A drone flying toward a restricted zone occupies its connection until it
+lands. Counting it only on the turn it departed let a second drone start
+down a capacity-1 connection on the turn the first one landed; the
+engine now counts in-flight drones in the arrival turn too.
 
 ## Testing Strategy
 
@@ -231,21 +352,46 @@ Recomputing paths when capacity fills up adds complexity. The implementation may
 - **Parser tests** (`test_parser.py`): valid maps, all zone types, every
   documented error path (missing declarations, duplicate zones/connections,
   invalid zone type, undefined zone reference, non-positive capacities,
-  unrecognised syntax, missing file).
+  unrecognised syntax, missing file) and the strict-grammar cases: dashes
+  in zone names, a start/end hub reusing a zone name, self-connections,
+  unknown/duplicate/malformed metadata, `nb_drones` not first, and the
+  line number on a connection to an undefined zone.
 - **Graph tests** (`test_graph.py`): per-type movement cost, blocked-zone
-  exclusion, priority tie-break, capacity lookups.
+  exclusion, priority tie-break.
 - **Pathfinding tests** (`test_pathfinding.py`): shortest path on a known
-  line graph, no-path detection, k-distinct-path search on a fork.
+  line graph, no-path detection, k-distinct-path search on a fork, and all
+  three of three parallel corridors being found.
 - **Simulation tests** (`test_simulation.py`): straight-line turn count,
   capacity-1 corridor queueing without collision, fork-vs-corridor
   throughput, restricted-zone in-flight notation and timing, determinism
   across repeated runs, and a regression test for a fixed bug where a
   restricted zone's capacity wasn't reserved until arrival (letting two
-  drones land on a capacity-1 zone on the same turn).
+  drones land on a capacity-1 zone on the same turn), a drone in flight
+  still occupying its connection, a restricted end zone taking 2 turns,
+  and a head-on deadlock raising on the first empty turn.
 - **CLI tests** (`test_cli.py`): the exit-code contract (0/1/2/3) end to end.
+- **Visualizer tests** (`test_visual.py`): movements painted by the
+  destination zone's color, zone-type fallback, in-flight connection
+  names resolved to their destination, legend markers, and plain mode
+  emitting no ANSI.
+- **Scheduler tests** (`test_scheduler.py`): one path per drone, a fork
+  split because sharing one branch queues, a small fleet all queueing on
+  the short route, a large fleet spilling onto the detour once that queue
+  outlasts it, and a guard that the chosen split is never worse than
+  piling every drone onto the cheapest route, and 30 drones spreading
+  evenly over three parallel corridors (11 turns).
+- **Replay tests** (`test_replay.py`): the display-free half of both
+  renderers — frame 0 at the start hub, one frame per turn, still drones
+  keeping their position, in-flight positions kept as connection names,
+  plus zone placement staying inside the screen and clear of the status
+  bar, single-row maps not dividing by zero, and the link glyph matching
+  the slope.
 
-Manual checks (visual mode, the 8 provided maps, a 50-drone stress run)
-are documented in `DEBUG_TEST_PLAN.md` / `TEST_REPORT.md`.
+Beyond the suite, each release is checked against the 10 provided maps
+with an independent rule validator (turn counts in the benchmark table
+above), a 1000-drone stress run, and the crash-safety inputs the parser
+has to survive: a directory, a binary file, an empty file,
+`nb_drones: 0`, and a start hub sharing its name with the end hub.
 
 ## Resources
 
@@ -272,3 +418,7 @@ AI was used for:
 - Generating example map files for testing
 - Reviewing code for PEP 8 compliance and mypy type safety
 - Structuring the project and README documentation
+- Auditing the project against the subject: an independent output
+  validator that found the in-flight connection-capacity bug, the
+  restricted-end-zone bug and the parser's lax grammar, plus the
+  scheduler's step-halving search and delivery-turn tie-break

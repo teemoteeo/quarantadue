@@ -4,9 +4,7 @@ version = "0.1.0"
 description = "Multi-drone routing simulation with constrained pathfinding."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "pydantic>=2.7",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
@@ -15,15 +13,8 @@ dev = [
     "pytest>=8.0",
 ]
 
-[tool.flake8]
-max-line-length = 100
-extend-ignore = ["E203", "W503"]
-exclude = [".venv", "__pycache__"]
-
 [tool.mypy]
 python_version = "3.10"
-strict = true
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

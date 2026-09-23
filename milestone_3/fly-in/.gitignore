@@ -6,9 +6,6 @@ __pycache__/
 .venv/
 venv/
 
-# uv
-uv.lock
-
 # Testing
 .pytest_cache/
 .mypy_cache/
@@ -19,6 +16,12 @@ uv.lock
 *.swp
 *.swo
 
+# Non-project scratch
+Claude outputs/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Subject (not part of the submission)
+Subject PDF.pdf
