@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import curses
+import locale
 from pathlib import Path
 from typing import Callable
 
@@ -45,7 +47,7 @@ def _ui(path: Path) -> TerminalUI:
     map_file = MapParser().parse(path)
     timelines = FlightPlanner(map_file, ZoneGraph(map_file)).plan()
     log = SimulationEngine(map_file, timelines).run()
-    return TerminalUI(map_file, log, title=path.name)
+    return TerminalUI(map_file, log, path=path)
 
 
 @pytest.mark.parametrize("path", MAPS, ids=lambda p: p.stem)
@@ -145,7 +147,7 @@ def _app_ui() -> TerminalUI:
     app = FlyInApplication(path, visual=False)
     map_data, _, log = app.load(path)
     return TerminalUI(
-        map_data, log, title=path.name,
+        map_data, log, path=path,
         maps=app.map_choices(), loader=app.load,
     )
 
@@ -193,3 +195,24 @@ def test_q_in_the_picker_closes_it_without_quitting() -> None:
     ui.handle(ord("m"))
     assert ui.handle(ord("q")) is True
     assert not ui._picking
+
+
+def test_an_unusable_locale_does_not_crash_the_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`LANG=xx_XX.UTF-8` used to end the TUI in a locale.Error."""
+    def bad_locale(*_: object) -> str:
+        raise locale.Error("unsupported locale setting")
+
+    ran: list[bool] = []
+    monkeypatch.setattr(locale, "setlocale", bad_locale)
+    monkeypatch.setattr(curses, "wrapper", lambda _: ran.append(True))
+    _ui(Path("data/maps/easy/01_linear_path.txt")).run()
+    assert ran == [True]
+
+
+def test_picker_marks_the_current_map_however_its_path_is_written() -> None:
+    ui = _app_ui()
+    ui._path = Path("data/maps/hard/02_capacity_hell.txt").resolve()
+    ui.handle(ord("m"))
+    assert list(ui._maps)[ui._choice] == "hard/02_capacity_hell.txt"

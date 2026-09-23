@@ -99,6 +99,11 @@ class MapParser:
         raise ParserError(line_no, f"Unrecognised line: {raw_line.rstrip()!r}")
 
     def _try_nb_drones(self, line_no: int, line: str) -> bool:
+        """Parse an `nb_drones: <n>` line; False if `line` is not one.
+
+        Raises:
+            ParserError: On a second declaration or a non-positive count.
+        """
         match = self._RE_NB_DRONES.match(line)
         if not match:
             return False
@@ -130,6 +135,12 @@ class MapParser:
         return True
 
     def _try_connection(self, line_no: int, line: str) -> bool:
+        """Parse a `connection: a-b [...]` line; False if it is not one.
+
+        Raises:
+            ParserError: On an undefined zone, a self-connection, a
+                duplicate (in either direction) or invalid metadata.
+        """
         match = self._RE_CONN.match(line)
         if not match:
             return False
@@ -208,6 +219,11 @@ class MapParser:
 
     @staticmethod
     def _positive_int(line_no: int, field: str, raw_value: str) -> int:
+        """Convert `raw_value` to an int of at least 1.
+
+        Raises:
+            ParserError: Naming `field` and the line, if it is not one.
+        """
         try:
             value = int(raw_value)
         except ValueError:

@@ -37,29 +37,25 @@ class TestZoneGraph:
         self, write_map: Callable[..., Path]
     ) -> None:
         graph = _build_graph(write_map)
-        neighbours = dict(graph.neighbours("a"))
-        assert neighbours["n"] == 1.0
+        assert graph.cost("n") == 1.0
 
     def test_restricted_zone_cost_is_two(
         self, write_map: Callable[..., Path]
     ) -> None:
         graph = _build_graph(write_map)
-        neighbours = dict(graph.neighbours("a"))
-        assert neighbours["r"] == 2.0
+        assert graph.cost("r") == 2.0
 
     def test_priority_zone_is_cheaper_than_normal(
         self, write_map: Callable[..., Path]
     ) -> None:
         graph = _build_graph(write_map)
-        neighbours = dict(graph.neighbours("a"))
-        assert neighbours["p"] < neighbours["n"]
+        assert graph.cost("p") < graph.cost("n")
 
     def test_blocked_zone_excluded_from_neighbours(
         self, write_map: Callable[..., Path]
     ) -> None:
         graph = _build_graph(write_map)
-        names = {n for n, _w in graph.neighbours("a")}
-        assert "blk" not in names
+        assert set(graph.neighbours("a")) == {"n", "r", "p"}
 
     def test_zone_type_lookup(self, write_map: Callable[..., Path]) -> None:
         graph = _build_graph(write_map)

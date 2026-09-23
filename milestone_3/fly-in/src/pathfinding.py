@@ -39,7 +39,7 @@ class PathFinder:
             d, u = heapq.heappop(pq)
             if d > dist[u]:
                 continue
-            for v, _ in self._graph.neighbours(u):
+            for v in self._graph.neighbours(u):
                 new_dist = d + self._graph.cost(u)
                 if new_dist < dist.get(v, math.inf):
                     dist[v] = new_dist
@@ -143,7 +143,7 @@ class FlightPlanner:
         result: list[State] = []
         if self._zone_free(zone, turn + 1):
             result.append((zone, turn + 1))
-        for dest, _ in self._graph.neighbours(zone):
+        for dest in self._graph.neighbours(zone):
             link = frozenset((zone, dest))
             if self._graph.zone_type(dest) == "restricted":
                 if (self._link_free(link, turn + 1)

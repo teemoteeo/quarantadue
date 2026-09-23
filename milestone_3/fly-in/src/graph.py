@@ -35,11 +35,10 @@ class ZoneGraph:
             self._adj[conn.from_zone].append(conn.to_zone)
             self._adj[conn.to_zone].append(conn.from_zone)
 
-    def neighbours(self, zone_name: str) -> list[tuple[str, float]]:
-        """Return (name, cost to enter) for each reachable neighbour."""
+    def neighbours(self, zone_name: str) -> list[str]:
+        """Neighbouring zones a drone can enter (blocked ones excluded)."""
         return [
-            (neigh, self.cost(neigh))
-            for neigh in self._adj.get(zone_name, [])
+            neigh for neigh in self._adj.get(zone_name, [])
             if self.zone_type(neigh) != "blocked"
         ]
 

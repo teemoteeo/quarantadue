@@ -115,7 +115,7 @@ class FlyInApplication:
             try:
                 TerminalUI(
                     map_data, log,
-                    title=self._map_path.name,
+                    path=self._map_path,
                     maps=self.map_choices(),
                     loader=self.load,
                 ).run()

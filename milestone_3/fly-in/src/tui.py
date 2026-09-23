@@ -23,12 +23,12 @@ from .simulation import SimulationFilm, TurnLog
 from .visual import MARKER, NAMED, TYPE_COLOR
 
 UNICODE = (sys.stdout.encoding or "").lower().startswith("utf")
-FULL, FREE, ARROW, BAR, CUT = (
-    ("■", "□", "→", "█", "…") if UNICODE else ("#", ".", ">", "#", "~")
+FREE, ARROW, BAR, CUT = (
+    ("□", "→", "█", "…") if UNICODE else (".", ">", "#", "~")
 )
 # Box drawing: top-left, top-right, bottom-left, bottom-right, edges.
 TL, TR, BL, BR, HORIZ, VERT = "┌┐└┘─│" if UNICODE else "++++-|"
-GAUGE_MAX = 6       # above this capacity the gauge is written as `n/cap`
+SLOTS_MAX = 6       # above this capacity, free slots become `n/cap`
 PANEL_W = 38        # side panel, shown by default only if the map keeps
 PANEL_MIN_PITCH = 11  # at least this many columns per zone column
 HEADER_ROWS, FOOTER_ROWS = 2, 2
@@ -187,12 +187,12 @@ class TerminalUI:
         map_data: MapFile,
         log: list[TurnLog],
         *,
-        title: str = "",
+        path: Path | None = None,
         maps: dict[str, Path] | None = None,
         loader: Loader | None = None,
     ) -> None:
-        """Bind the UI to a map and its log; `maps` and `loader` enable
-        switching to another map from inside the UI."""
+        """Bind the UI to a map, its log and its file; `maps` and
+        `loader` enable switching to another map from inside the UI."""
         self._maps = maps or {}
         self._loader = loader
         self._picking = False
@@ -202,13 +202,15 @@ class TerminalUI:
         self._panel: bool | None = None  # None: decided by terminal width
         self._cols = 0  # width at the last draw, for the panel toggle
         self._pairs: dict[str, int] = {}
-        self._show(map_data, log, title)
+        self._show(map_data, log, path)
 
-    def _show(self, map_data: MapFile, log: list[TurnLog], title: str) -> None:
+    def _show(
+        self, map_data: MapFile, log: list[TurnLog], path: Path | None
+    ) -> None:
         """Replace the replay with `map_data` and play it from the start."""
         self._map = map_data
-        self._log = log
-        self._title = title
+        self._path = path
+        self._title = path.name if path else ""
         self._layout = ZoneLayout(map_data.zones)
         self._frames = SimulationFilm(
             log, map_data.start.name, map_data.nb_drones
@@ -281,29 +283,40 @@ class TerminalUI:
 
     def run(self) -> None:
         """Take over the terminal and replay until the user quits."""
-        locale.setlocale(locale.LC_ALL, "")
+        try:
+            locale.setlocale(locale.LC_ALL, "")
+        except locale.Error:  # e.g. LANG names a locale not installed
+            pass
         curses.wrapper(self._loop)
 
     def _init_colors(self) -> None:
         """Allocate one curses pair per color word the map may use."""
         if not curses.has_colors():
             return
-        curses.use_default_colors()
+        try:
+            curses.use_default_colors()
+            background = -1  # the terminal's own background
+        except curses.error:
+            background = curses.COLOR_BLACK
         for index, (name, code) in enumerate(CURSES_COLOR.items(), start=1):
-            curses.init_pair(index, code, -1)
+            curses.init_pair(index, code, background)
             self._pairs[name] = curses.color_pair(index)
 
     def _color(self, word: str) -> int:
         """Curses attribute for a color word; plain without colors."""
         return self._pairs.get(word, 0)
 
+    @staticmethod
+    def _zone_word(zone: Zone) -> str:
+        """A zone's color word: its `color=` if known, else its type's."""
+        if zone.color in NAMED:
+            return zone.color or ""
+        return TYPE_COLOR[zone.zone_type]
+
     def _zone_attr(self, name: str) -> int:
-        """Curses attribute for a zone: its `color=`, else its type."""
-        zone = self._map.zones[name]
-        word = zone.color if zone.color in NAMED else TYPE_COLOR[
-            zone.zone_type
-        ]
-        attr = self._color(word or "") | curses.A_BOLD
+        """Curses attribute for a zone's name: its color, in bold."""
+        attr = self._color(self._zone_word(self._map.zones[name]))
+        attr |= curses.A_BOLD
         if name in (self._map.start.name, self._map.end.name):
             attr |= curses.A_REVERSE
         return attr
@@ -354,8 +367,11 @@ class TerminalUI:
 
     def _current(self) -> str:
         """Picker name of the map on screen, or "" if it is not listed."""
+        if self._path is None:
+            return ""
+        here = self._path.resolve()
         return next(
-            (n for n, p in self._maps.items() if p.name == self._title), ""
+            (n for n, p in self._maps.items() if p.resolve() == here), ""
         )
 
     def _draw_picker(
@@ -564,11 +580,8 @@ class TerminalUI:
             and zone.zone_type != "blocked"
             and len(ids) >= zone.max_drones
         )
-        word = zone.color if zone.color in NAMED else TYPE_COLOR[
-            zone.zone_type
-        ]
         edge = self._color("red") | curses.A_BOLD if full else (
-            self._color(word or "")
+            self._color(self._zone_word(zone))
             | (curses.A_DIM if zone.zone_type == "blocked" else 0)
         )
         inner = box - 2
@@ -612,7 +625,7 @@ class TerminalUI:
             return
         cap = zone.max_drones
         full = len(ids) >= cap
-        free = FREE * (cap - len(ids)) if cap <= GAUGE_MAX else ""
+        free = FREE * (cap - len(ids)) if cap <= SLOTS_MAX else ""
         text = " ".join(map(str, ids)) + (" " if ids and free else "") + free
         if len(text) > width:
             count = f"{len(ids)}/{cap}"
@@ -682,10 +695,10 @@ class TerminalUI:
         """Readable moves of the turn on screen, with full zone names."""
         if self.turn == 0:
             return []
-        before = self._frames[self.turn - 1]
+        before, after = self._frames[self.turn - 1], self._frames[self.turn]
         moves = []
-        for move in self._log[self.turn - 1].movements:
-            prev, dest = before[move.drone_id], move.destination
+        for drone_id in sorted(self._movers()):
+            prev, dest = before[drone_id], after[drone_id]
             if "-" in dest:
                 prev, dest = dest.split("-")
                 text = f"{prev} {ARROW} {dest} (2 turns)"
@@ -695,7 +708,7 @@ class TerminalUI:
                 text = f"{prev} {ARROW} {dest}"
             if len(text) > PANEL_W - 6:  # keep the destination readable
                 text = f"{ARROW} {dest}"
-            moves.append(f"D{move.drone_id:<3} {text}")
+            moves.append(f"D{drone_id:<3} {text}")
         return moves
 
     def _draw_footer(self, screen: curses.window, rows: int) -> None:
@@ -735,7 +748,7 @@ class TerminalUI:
             except (RuntimeError, ValueError) as exc:  # ParserError too
                 self._error = f"cannot load: {exc}"
                 return
-            self._show(map_data, log, path.name)
+            self._show(map_data, log, path)
             self._picking = False
 
     def handle(self, key: int) -> bool:
@@ -779,7 +792,10 @@ class TerminalUI:
 
     def _loop(self, screen: curses.window) -> None:
         """Event loop: redraw, read a key, advance the clock."""
-        curses.curs_set(0)
+        try:
+            curses.curs_set(0)
+        except curses.error:  # terminal cannot hide the cursor: keep it
+            pass
         screen.timeout(30)
         self._init_colors()
         last = time.monotonic()
