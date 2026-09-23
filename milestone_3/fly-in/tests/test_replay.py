@@ -43,9 +43,14 @@ class TestZoneLayout:
         "goal": Zone("goal", 10, 4),
     }
 
-    def test_cells_stay_inside_the_box(self) -> None:
-        cells = ZoneLayout(self.ZONES).cells(2, 1, 20, 78)
-        assert all(2 <= r < 22 - 1 and 1 <= c < 79 for r, c in cells.values())
+    def test_boxes_stay_inside_the_area(self) -> None:
+        layout = ZoneLayout(self.ZONES)
+        cells = layout.cells(2, 1, 20, 78)
+        box = layout.box_width(78)
+        assert all(
+            r >= 2 and r + 3 <= 22 and c >= 1 and c + box <= 79
+            for r, c in cells.values()
+        )
 
     def test_distinct_coordinates_get_evenly_spaced_columns(self) -> None:
         # x = 0, 5, 10 and x = 0, 1, 100 lay out the same: rank, not value.
@@ -58,13 +63,14 @@ class TestZoneLayout:
             self.ZONES
         ).cells(0, 0, 20, 60)
 
-    def test_labels_never_overlap_on_a_row(self) -> None:
+    def test_boxes_leave_room_for_connections_between_them(self) -> None:
         row = {f"zone_number_{i}": Zone(f"zone_number_{i}", i, 0)
                for i in range(12)}
         layout = ZoneLayout(row)
-        cols = sorted(c for _, c in layout.cells(0, 0, 10, 80).values())
-        width = layout.label_width(80)
-        assert all(b - a > width for a, b in zip(cols, cols[1:]))
+        cols = sorted(c for _, c in layout.cells(0, 0, 10, 90).values())
+        box = layout.box_width(90)
+        assert box >= 5
+        assert all(b - a >= box + 2 for a, b in zip(cols, cols[1:]))
 
     def test_single_row_map_does_not_divide_by_zero(self) -> None:
         flat = {"a": Zone("a", 0, 0), "b": Zone("b", 3, 0)}

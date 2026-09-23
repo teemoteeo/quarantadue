@@ -83,10 +83,10 @@ def test_quit_key_stops_the_loop() -> None:
 
 
 def test_panel_toggle_overrides_the_automatic_choice() -> None:
-    ui = _ui(Path("data/maps/challenger/01_the_impossible_dream.txt"))
-    screen = FakeScreen(140, 40)
+    ui = _ui(Path("data/maps/hard/03_ultimate_challenge.txt"))
+    screen = FakeScreen(170, 40)
     ui.draw(screen)  # type: ignore[arg-type]
-    assert "FLEET" not in screen.text()  # 21 zone columns: map needs room
+    assert "FLEET" not in screen.text()  # 14 zone columns: map needs room
     ui.handle(ord("p"))
     ui.draw(screen)  # type: ignore[arg-type]
     assert "FLEET" in screen.text()

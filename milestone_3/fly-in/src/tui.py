@@ -24,9 +24,11 @@ UNICODE = (sys.stdout.encoding or "").lower().startswith("utf")
 FULL, FREE, ARROW, BAR, CUT = (
     ("■", "□", "→", "█", "…") if UNICODE else ("#", ".", ">", "#", "~")
 )
+# Box drawing: top-left, top-right, bottom-left, bottom-right, edges.
+TL, TR, BL, BR, HORIZ, VERT = "┌┐└┘─│" if UNICODE else "++++-|"
 GAUGE_MAX = 6       # above this capacity the gauge is written as `n/cap`
 PANEL_W = 38        # side panel, shown by default only if the map keeps
-PANEL_MIN_PITCH = 8  # at least this many columns per zone column
+PANEL_MIN_PITCH = 11  # at least this many columns per zone column
 HEADER_ROWS, FOOTER_ROWS = 2, 2
 MIN_COLS = 60
 DELAYS_MS = (150, 300, 600, 1000, 1500, 2500)  # per turn
@@ -59,8 +61,8 @@ class ZoneLayout:
     Coordinates are rank-compressed: the k-th distinct `x` becomes
     column k and the k-th distinct `y` becomes row k. Zones keep their
     left/right and up/down order, every column gets the same width, and
-    labels never overlap. Each zone takes two rows: its label, and a
-    capacity gauge beneath it.
+    boxes never overlap. Each zone is a 3-row box: its name set in the
+    top border, its drones on the middle row.
     """
 
     def __init__(self, zones: dict[str, Zone]) -> None:
@@ -71,8 +73,13 @@ class ZoneLayout:
 
     @property
     def min_height(self) -> int:
-        """Rows the map needs: two per distinct `y`."""
-        return 2 * len(self._ys)
+        """Rows the map needs: a 3-row box per distinct `y`, 1-row gaps."""
+        return 4 * len(self._ys) - 1
+
+    @property
+    def min_width(self) -> int:
+        """Columns the map needs: a 5-wide box per distinct `x`, gaps."""
+        return 8 * len(self._xs)
 
     @staticmethod
     def label(name: str, zone: Zone, width: int = 0) -> str:
@@ -92,23 +99,26 @@ class ZoneLayout:
 
     def pitch(self, width: int) -> int:
         """Columns each distinct `x` gets in a `width`-wide map."""
-        return max(4, width // len(self._xs))
+        return max(8, width // len(self._xs))
 
-    def label_width(self, width: int) -> int:
-        """Widest label that fits one column of a `width`-wide map."""
+    def box_width(self, width: int) -> int:
+        """Box width in a `width`-wide map: the longest name plus borders,
+        capped so a third of each column is left for the connection
+        between boxes, where drones are seen gliding."""
         longest = max(
             len(self.label(n, z)) for n, z in self._zones.items()
         )
-        return min(self.pitch(width) - 1, longest)
+        pitch = self.pitch(width)
+        return min(pitch - max(3, pitch // 3), max(longest, 5) + 2)
 
     def cells(
         self, top: int, left: int, height: int, width: int
     ) -> dict[str, tuple[int, int]]:
-        """Top-left `(row, col)` of each zone's label, centred in the box."""
+        """Top-left `(row, col)` of each zone's box, centred in the area."""
         pitch_x = self.pitch(width)
-        pitch_y = max(2, height // len(self._ys))
-        used_w = pitch_x * (len(self._xs) - 1) + self.label_width(width)
-        used_h = pitch_y * (len(self._ys) - 1) + 2
+        pitch_y = max(4, height // len(self._ys))
+        used_w = pitch_x * (len(self._xs) - 1) + self.box_width(width)
+        used_h = pitch_y * (len(self._ys) - 1) + 3
         left += max(0, (width - used_w) // 2)
         top += max(0, (height - used_h) // 2)
         return {
@@ -300,10 +310,12 @@ class TerminalUI:
         screen.erase()
         rows, cols = screen.getmaxyx()
         self._cols = cols
-        need = self._layout.min_height + HEADER_ROWS + FOOTER_ROWS
-        if rows < need or cols < MIN_COLS:
+        need_rows = self._layout.min_height + HEADER_ROWS + FOOTER_ROWS
+        need_cols = max(MIN_COLS, self._layout.min_width + 2)
+        if rows < need_rows or cols < need_cols:
             self._put(screen, 0, 0, f"Terminal too small: need at least "
-                                    f"{MIN_COLS}x{need}, have {cols}x{rows}")
+                                    f"{need_cols}x{need_rows}, "
+                                    f"have {cols}x{rows}")
             screen.refresh()
             return
         panel = self._panel_shown(cols)
@@ -318,7 +330,7 @@ class TerminalUI:
 
     def _panel_shown(self, cols: int) -> bool:
         """Whether the side panel fits: the user's choice, else auto."""
-        if cols - PANEL_W < MIN_COLS:
+        if cols - PANEL_W - 3 < max(MIN_COLS, self._layout.min_width):
             return False
         if self._panel is not None:
             return self._panel
@@ -354,25 +366,23 @@ class TerminalUI:
     def geometry(
         self, top: int, left: int, h: int, w: int
     ) -> tuple[dict[str, Cell], dict[str, str], dict[str, Cell], Paths]:
-        """Label cells, fitted labels, label centres, and link paths.
+        """Box corners, fitted names, box centres, and link paths.
 
-        A link's path runs between the two label centres, minus the cells
-        covered by any label or drone row, so a drone gliding along it
-        never paints over a zone.
+        A link runs between the two box centres, and its path keeps only
+        the cells outside every box: lines stop at the borders, and a
+        drone gliding along one never paints over a zone.
         """
         cell = self._layout.cells(top, left, h, w)
-        width = self._layout.label_width(w)
+        box = self._layout.box_width(w)
         labels = {
-            n: self._layout.label(n, z, width)
+            n: self._layout.label(n, z, box - 2)
             for n, z in self._map.zones.items()
         }
         taken = {
             (r + dr, c + dc)
-            for r, c in cell.values() for dr in (0, 1) for dc in range(width)
+            for r, c in cell.values() for dr in range(3) for dc in range(box)
         }
-        anchor = {
-            n: (r, c + len(labels[n]) // 2) for n, (r, c) in cell.items()
-        }
+        anchor = {n: (r + 1, c + box // 2) for n, (r, c) in cell.items()}
         paths: Paths = {}
         for conn in self._map.connections:
             a, b = conn.from_zone, conn.to_zone
@@ -423,7 +433,11 @@ class TerminalUI:
     def _draw_map(
         self, screen: curses.window, top: int, left: int, h: int, w: int
     ) -> None:
-        """Links by traffic, zones with their drones, drones in the air."""
+        """Links by traffic, zone boxes with their drones, drones in the air.
+
+        Lines are drawn centre to centre first; the boxes, drawn after
+        with blank interiors, cover the ends so each line meets a border.
+        """
         cell, labels, anchor, paths = self.geometry(top, left, h, w)
         active = self._turn_links[self.turn]
         for conn in self._map.connections:
@@ -439,15 +453,16 @@ class TerminalUI:
             ):
                 self._put(screen, row, col, glyph, attr)
 
-        width = self._layout.label_width(w)
+        box = self._layout.box_width(w)
         here: dict[str, list[int]] = {}
         for drone_id, pos in sorted(self._resting().items()):
             here.setdefault(pos, []).append(drone_id)
         movers = self._movers()
         for name, (row, col) in cell.items():
-            self._put(screen, row, col, labels[name], self._zone_attr(name))
+            ids = here.get(name, [])
+            self._draw_box(screen, row, col, box, labels[name], name, ids)
             self._draw_occupants(
-                screen, row + 1, col, width, name, here.get(name, []), movers
+                screen, row + 1, col + 1, box - 2, name, ids, movers
             )
 
         airborne: dict[Cell, list[int]] = {}
@@ -461,6 +476,44 @@ class TerminalUI:
             )
             self._put(screen, row, col, ",".join(map(str, ids)), attr)
 
+    def _draw_box(
+        self,
+        screen: curses.window,
+        row: int,
+        col: int,
+        box: int,
+        label: str,
+        name: str,
+        ids: list[int],
+    ) -> None:
+        """A zone's frame: its name in the top border, a blank interior.
+
+        The border takes the zone's color, and turns red when the zone
+        is full, so bottlenecks show from across the map.
+        """
+        zone = self._map.zones[name]
+        full = (
+            name not in (self._map.start.name, self._map.end.name)
+            and zone.zone_type != "blocked"
+            and len(ids) >= zone.max_drones
+        )
+        word = zone.color if zone.color in NAMED else TYPE_COLOR[
+            zone.zone_type
+        ]
+        edge = self._color("red") | curses.A_BOLD if full else (
+            self._color(word or "")
+            | (curses.A_DIM if zone.zone_type == "blocked" else 0)
+        )
+        inner = box - 2
+        self._put(screen, row, col, TL, edge)
+        self._put(screen, row, col + 1, label, self._zone_attr(name))
+        self._put(
+            screen, row, col + 1 + len(label),
+            HORIZ * (inner - len(label)) + TR, edge,
+        )
+        self._put(screen, row + 1, col, VERT + " " * inner + VERT, edge)
+        self._put(screen, row + 2, col, BL + HORIZ * inner + BR, edge)
+
     def _draw_occupants(
         self,
         screen: curses.window,
@@ -471,21 +524,22 @@ class TerminalUI:
         ids: list[int],
         movers: set[int],
     ) -> None:
-        """The row under a zone: its drones by number, then free slots.
+        """A box's middle row: its drones by number, then free slots.
 
-        Drones that just arrived are yellow; a full zone's drones are
-        red. When the numbers do not fit the column, a count is shown.
+        Centred in the box. Drones that just arrived are yellow; a full
+        zone's drones are red. When the numbers do not fit, a count is
+        shown instead.
         """
         zone = self._map.zones[name]
         if name in (self._map.start.name, self._map.end.name):
             word = "left" if name == self._map.start.name else "in"
             text = f"{len(ids)} {word}"
+            text = text if len(text) <= width else str(len(ids))
             attr = (
                 curses.A_DIM if name == self._map.start.name
                 else self._color("green") | curses.A_BOLD
             )
-            self._put(screen, row, col, text if len(text) <= width
-                      else str(len(ids)), attr)
+            self._put(screen, row, col + (width - len(text)) // 2, text, attr)
             return
         if zone.zone_type == "blocked":
             return
@@ -498,8 +552,11 @@ class TerminalUI:
             attr = self._color("red") | curses.A_BOLD if full else (
                 curses.A_BOLD if ids else curses.A_DIM
             )
-            self._put(screen, row, col, count, attr)
+            self._put(
+                screen, row, col + (width - len(count)) // 2, count, attr
+            )
             return
+        col += (width - len(text)) // 2
         x = col
         for drone_id in ids:
             if drone_id in movers:
@@ -578,8 +635,8 @@ class TerminalUI:
         """Legend and key hints."""
         self._put(
             screen, rows - 2, 1,
-            f"12 drone number (yellow: moving)  {FREE} free slot  "
-            "red: full  "
+            f"{TL}name{TR} zone with its drones  12 drone (yellow: moving)"
+            f"  {FREE} free slot  red: full  "
             "* priority  ! restricted  x blocked  "
             "link: yellow = in use, dim = never used",
             curses.A_DIM,
@@ -595,7 +652,9 @@ class TerminalUI:
 
     def handle(self, key: int) -> bool:
         """Apply one key press; return False to quit."""
-        if key in (ord("q"), 27):
+        # Not Esc: an arrow key is Esc + 2 bytes, and over a slow link
+        # curses can read that Esc alone and quit mid-replay.
+        if key == ord("q"):
             return False
         if key == ord(" "):
             if self._playing:

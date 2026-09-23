@@ -290,27 +290,42 @@ legend, each turn is one line in exactly the subject's format
 drone along the connections it takes. `curses` ships with CPython on
 Unix, so this adds **no** runtime dependency, and it works over ssh.
 
-Mid-turn: drones 4, 2 and 1 glide down the fast route while 3 crosses
-from `slow_path1` (every moving drone is highlighted yellow on screen):
+Mid-turn on `capacity_hell`: the fleet spreads over the gates, the
+waiting areas and the priority bypass (moving drones are highlighted
+yellow on screen, full zones get a red frame):
 
 ```
- FLY-IN  03_priority_puzzle.txt                 turn 3/7  □□□□□□□□□□ 0/5 delivered  playing 1000ms
----------------------------------------------------------------------------------------------------
-                                                             |FLEET
-                                                             | waiting at start  1
-              slow_pa…1!3slow_path2                          | moving now        4
-              □ /--      □     \-                            | mid-transit       0
-               /                 \                           | delivered         0/5
-            /--                   \-                         |
-           /                        \-                       |MOVES IN TURN 3
-        /--                           \                      | D1   fast_path → merge_point
-       /                               \-                    | D2   fast_junction → fast_path
-   start-----4fast_jun…*2fast_path*1merge_poi…-goal          | D3   slow_path1 → slow_path2
-   1 left     □□         □          □□□        0 in          | D4   start → fast_junction
- 12 drone number (yellow: moving)  □ free slot  red: full  * priority  ! restricted  x blocked
- [space] play/pause  [<-/->] one turn  [+/-] speed  [p] panel  [r] restart  [q] quit
+      ┌start─┐
+      │1 left│
+      └──────┘----
+             \ \--\---
+              \-  \-- \---9
+                \-   11--  \----
+                  \      \--    \---
+                 ┌gate1─┐   ┌gate2─┐\--┌gate3─┐   ┌res…1!┐   ┌res…2!┐   ┌res…3!┐   ┌conve…┐   ┌final…┐   ┌goal──┐
+                 │  □   │---│  □   │---│  □   │---│  □□  │---│  □□  │---│  □□  │---│□□□□□□│-1-│ □□□  │---│ 0 in │
+                 └──────┘   └──────┘   └──────┘   └──────┘   └──────┘   └──────┘---└──────┘   └──────┘   └──────┘
+                     |          |          |                            /-----    /-
+                     |          |          |                     /------       /--
+                     10         8          6               /----3            /-
+                     |          |          |         /-----                /-
+                 ┌wait…1┐   ┌wait…2┐   ┌wait…3┐/-----                   /--
+                 │ □□□□ │---│ □□□□ │---│ □□□□ │                       /2
+                 └──────┘-  └──────┘-  └──────┘                    /--
+                          \--        \--                         /-
+                             \--        \--                    /-
+                                7---       5---             /--
+                                    \--        \--        /-
+                                       ┌pri…1*┐   ┌pri…2*┐
+                                       │ □□□  │-4-│ □□□  │
+                                       └──────┘   └──────┘
 ```
 
+- **Zones are boxes.** Each zone is a small frame with its name set in
+  the top border and its drones inside, so a name never covers a route.
+  Connections run between box centres and stop at the borders, and a
+  third of every column is kept free between boxes so drones have room
+  to travel.
 - **Every drone, by number, in motion.** Playback runs on a continuous
   clock, so between two turns each moving drone slides along its
   connection from one zone to the next, drawn as its own number and
@@ -319,13 +334,14 @@ from `slow_path1` (every moving drone is highlighted yellow on screen):
   second, so the 2-turn cost is visible as motion.
 - **Readable layout.** Zones keep the order of their `x y` coordinates,
   but each distinct `x` gets an equal-width column (rank compression),
-  so labels never overlap however the coordinates are spread. A name too
-  long for its column is shortened but keeps its trailing digits
+  so boxes never overlap however the coordinates are spread. A name too
+  long for its box is shortened but keeps its trailing digits
   (`conv_restricted7!` becomes `conv_…7!`), since the digits are what
-  tell sibling zones apart.
-- **Who is where.** Under each zone, the numbers of the drones in it,
+  tell sibling zones apart. A wider terminal shows longer names.
+- **Who is where.** Inside each box, the numbers of the drones in it,
   followed by a `□` per free slot. The drones that just arrived are
-  yellow, and a full zone's drones are red, so bottlenecks stand out.
+  yellow; a full zone gets a red frame and red numbers, so bottlenecks
+  stand out.
   When the numbers don't fit the column, `3/8` is shown instead. The
   start shows how many drones are left, the end how many are in.
 - **Traffic on the connections.** A connection is drawn bright yellow
@@ -339,11 +355,14 @@ from `slow_path1` (every moving drone is highlighted yellow on screen):
 - **Controls.** Space plays or pauses (at the end, it replays). The
   arrow keys play exactly one turn forward or backward, so you can watch
   a single turn's moves as often as you like. `+`/`-` change the speed
-  (150 ms to 2.5 s per turn), `r` restarts and `q` quits. The header
+  (150 ms to 2.5 s per turn), `r` restarts and `q` quits (not Esc: an
+  arrow key starts with an Esc byte, and a slow link could split it).
+  The header
   shows the turn, a delivered progress bar and the speed.
 - **Any terminal size.** The size is re-read every frame, so resizing
-  re-lays the map out. Below the minimum size the UI says how much room
-  it needs instead of drawing garbage. Non-UTF-8 terminals get ASCII
+  re-lays the map out. Below the minimum size (8 columns per zone
+  column, so about 170 columns for the challenger map) the UI says how
+  much room it needs instead of drawing garbage. Non-UTF-8 terminals get ASCII
   glyphs.
 
 Layout and replay are display-free and unit-tested headlessly
@@ -458,5 +477,5 @@ AI was used for:
   restricted-end-zone bug and the parser's lax grammar
 - Replacing the route scheduler with the cooperative space-time planner
   (`FlightPlanner`), turning the engine into a rule-checking replay, and
-  redesigning the curses UI (rank-compressed layout, capacity gauges,
+  redesigning the curses UI (rank-compressed layout, zones as boxes,
   traffic-colored connections, side panel)
