@@ -286,53 +286,61 @@ legend, each turn is one line in exactly the subject's format
 
 ### Terminal UI (`src/tui.py`, `--tui`)
 
-`TerminalUI` draws the whole network with `curses` and animates the
-replay. `curses` ships with CPython on Unix, so this adds **no** runtime
-dependency, and it works over ssh.
+`TerminalUI` draws the whole network with `curses` and animates every
+drone along the connections it takes. `curses` ships with CPython on
+Unix, so this adds **no** runtime dependency, and it works over ssh.
+
+Mid-turn: drones 4, 2 and 1 glide down the fast route while 3 crosses
+from `slow_path1` (every moving drone is highlighted yellow on screen):
 
 ```
- FLY-IN  03_priority_puzzle.txt                   turn 3/7  □□□□□□□□□□ 0/5 delivered  playing 700ms
-----------------------------------------------------------------------------------------------------
-                                                              |FLEET
-                                                              | waiting at start  1
-            slow_path1!-slow_path2                            | in flight         0
-            □ /-        ■     \-                              | delivered         0/5
-            /-                  \-                            |
-          /-                      \                           |MOVES IN TURN 3
-        /-                         \-                         | D1   fast_path → merge_point
-      /-                             \-                       | D2   fast_junction → fast_path
-start-------fast_junc…*-fast_path*--merge_point-goal          | D3   slow_path1 → slow_path2
-1 left      ■□          ■           ■□□         0 in          | D4   start → fast_junction
-                                                              |
-                                                              |BUSY ZONES
-                                                              | slow_path2               1/1 full
- ■ drone □ free (red: full)  * priority  ! restricted  x blocked  »N in flight  link: yellow = used now
- [space] play/pause  [<-/->] step  [+/-] speed  [p] panel  [r] restart  [q] quit
+ FLY-IN  03_priority_puzzle.txt                 turn 3/7  □□□□□□□□□□ 0/5 delivered  playing 1000ms
+---------------------------------------------------------------------------------------------------
+                                                             |FLEET
+                                                             | waiting at start  1
+              slow_pa…1!3slow_path2                          | moving now        4
+              □ /--      □     \-                            | mid-transit       0
+               /                 \                           | delivered         0/5
+            /--                   \-                         |
+           /                        \-                       |MOVES IN TURN 3
+        /--                           \                      | D1   fast_path → merge_point
+       /                               \-                    | D2   fast_junction → fast_path
+   start-----4fast_jun…*2fast_path*1merge_poi…-goal          | D3   slow_path1 → slow_path2
+   1 left     □□         □          □□□        0 in          | D4   start → fast_junction
+ 12 drone number (yellow: moving)  □ free slot  red: full  * priority  ! restricted  x blocked
+ [space] play/pause  [<-/->] one turn  [+/-] speed  [p] panel  [r] restart  [q] quit
 ```
 
+- **Every drone, by number, in motion.** Playback runs on a continuous
+  clock, so between two turns each moving drone slides along its
+  connection from one zone to the next, drawn as its own number and
+  highlighted. A transit toward a restricted zone stops halfway down the
+  connection after its first turn (shown in magenta) and lands on the
+  second, so the 2-turn cost is visible as motion.
 - **Readable layout.** Zones keep the order of their `x y` coordinates,
   but each distinct `x` gets an equal-width column (rank compression),
   so labels never overlap however the coordinates are spread. A name too
   long for its column is shortened but keeps its trailing digits
   (`conv_restricted7!` becomes `conv_…7!`), since the digits are what
   tell sibling zones apart.
-- **Capacity at a glance.** Under each zone, a gauge shows drones versus
-  capacity: `■` for a drone, `□` for a free slot, and `3/8` for large
-  capacities. A full zone turns red, so bottlenecks are easy to spot. The
+- **Who is where.** Under each zone, the numbers of the drones in it,
+  followed by a `□` per free slot. The drones that just arrived are
+  yellow, and a full zone's drones are red, so bottlenecks stand out.
+  When the numbers don't fit the column, `3/8` is shown instead. The
   start shows how many drones are left, the end how many are in.
 - **Traffic on the connections.** A connection is drawn bright yellow
   while a drone is on it this turn, normally if the plan uses it at any
   point, and dim if no drone ever takes it. A glance shows which routes
-  the fleet is spread over. Drones in transit toward a restricted zone
-  appear as `»N` on the connection they occupy.
+  the fleet is spread over.
 - **Side panel with full names.** Fleet totals, every move of the
   current turn (`D3 slow_path1 → slow_path2`, `(2 turns)` for a
   transit), and the busy zones sorted fullest first. The panel hides
   itself when the map needs the width; `p` toggles it.
-- **Controls.** Space plays or pauses (at the end, it replays), the
-  arrow keys step one turn either way, `+`/`-` change the speed, `r`
-  restarts and `q` quits. The header shows the turn, a delivered
-  progress bar and the speed.
+- **Controls.** Space plays or pauses (at the end, it replays). The
+  arrow keys play exactly one turn forward or backward, so you can watch
+  a single turn's moves as often as you like. `+`/`-` change the speed
+  (150 ms to 2.5 s per turn), `r` restarts and `q` quits. The header
+  shows the turn, a delivered progress bar and the speed.
 - **Any terminal size.** The size is re-read every frame, so resizing
   re-lays the map out. Below the minimum size the UI says how much room
   it needs instead of drawing garbage. Non-UTF-8 terminals get ASCII
@@ -405,10 +413,13 @@ engine now counts in-flight drones in the arrival turn too.
   zones placed inside the box by coordinate rank, labels never
   overlapping on a row, long labels keeping digits and marker, and link
   glyphs matching the slope.
-- **TUI tests** (`test_tui.py`): every frame of every provided map drawn
-  through a fake screen at 60x16, 100x30 and 220x60, the delivered count
-  on the last frame, full zone names in the move list, the panel toggle,
-  and the quit key.
+- **TUI tests** (`test_tui.py`): every quarter-turn of every provided
+  map drawn through a fake screen at 60x16, 100x30 and 220x60 (catching
+  drones mid-glide and mid-transit), a moving drone advancing along its
+  connection and leaving it on landing, a transit stopping at the
+  midpoint then landing, zones listing their drones by number, the right
+  arrow playing exactly one turn, the delivered count, full zone names
+  in the move list, the panel toggle, and the quit key.
 
 Beyond the suite, each release is checked against the 10 provided maps
 with an independent rule validator (turn counts in the benchmark table

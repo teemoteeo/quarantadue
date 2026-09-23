@@ -10,7 +10,7 @@ from src.graph import ZoneGraph
 from src.parser import MapParser
 from src.pathfinding import FlightPlanner
 from src.simulation import SimulationEngine
-from src.tui import TerminalUI
+from src.tui import FREE, TerminalUI
 
 MAPS = sorted(Path("data/maps").glob("*/*.txt"))
 
@@ -51,18 +51,19 @@ def _ui(path: Path) -> TerminalUI:
 def test_every_frame_draws_without_error(
     path: Path, size: tuple[int, int]
 ) -> None:
+    """Quarter-turn steps catch drones mid-glide and mid-transit too."""
     ui = _ui(path)
     screen = FakeScreen(*size)
-    for _ in range(len(ui._frames)):
+    for quarter in range(4 * ui._last + 1):
+        ui._t = quarter / 4
         ui.draw(screen)  # type: ignore[arg-type]
-        ui.handle(261)  # KEY_RIGHT
-    assert "FLY-IN" in screen.text() or "too small" in screen.text()
+        assert "FLY-IN" in screen.text() or "too small" in screen.text()
 
 
 def test_last_frame_shows_every_drone_delivered() -> None:
     ui = _ui(Path("data/maps/easy/02_simple_fork.txt"))
     screen = FakeScreen(140, 30)
-    ui._index = len(ui._frames) - 1
+    ui._t = float(ui._last)
     ui.draw(screen)  # type: ignore[arg-type]
     assert "4/4 delivered" in screen.text()
 
@@ -70,7 +71,7 @@ def test_last_frame_shows_every_drone_delivered() -> None:
 def test_panel_spells_out_moves_with_full_names() -> None:
     ui = _ui(Path("data/maps/medium/02_circular_loop.txt"))
     screen = FakeScreen(140, 30)
-    ui._index = 3  # D1 departs toward the restricted exit_point
+    ui._t = 3.0  # D1 departs toward the restricted exit_point
     ui.draw(screen)  # type: ignore[arg-type]
     assert "loop_b → exit_point (2 turns)" in screen.text()
 
@@ -89,3 +90,48 @@ def test_panel_toggle_overrides_the_automatic_choice() -> None:
     ui.handle(ord("p"))
     ui.draw(screen)  # type: ignore[arg-type]
     assert "FLEET" in screen.text()
+
+
+def _paths(ui: TerminalUI) -> dict[tuple[str, str], list[tuple[int, int]]]:
+    return ui.geometry(2, 1, 26, 136)[3]
+
+
+def test_a_moving_drone_glides_between_the_two_zones() -> None:
+    ui = _ui(Path("data/maps/easy/01_linear_path.txt"))
+    line = _paths(ui)[("start", "waypoint1")]
+    ui._t = 0.1  # early in turn 1: D1 just left the start
+    early = ui.drone_cells(_paths(ui))[1]
+    ui._t = 0.9
+    late = ui.drone_cells(_paths(ui))[1]
+    assert line.index(early) < line.index(late)
+    ui._t = 1.0  # landed: back in a zone, off the link
+    assert 1 not in ui.drone_cells(_paths(ui))
+
+
+def test_a_transit_stops_halfway_and_lands_next_turn() -> None:
+    ui = _ui(Path("data/maps/medium/02_circular_loop.txt"))
+    line = _paths(ui)[("loop_b", "exit_point")]
+    ui._t = 3.0  # D1 took off toward the restricted exit_point
+    assert ui.drone_cells(_paths(ui))[1] == line[len(line) // 2]
+    ui._t = 3.9  # landing: past the midpoint
+    assert line.index(ui.drone_cells(_paths(ui))[1]) > len(line) // 2
+
+
+def test_zones_list_their_drones_by_number() -> None:
+    ui = _ui(Path("data/maps/easy/03_basic_capacity.txt"))
+    screen = FakeScreen(140, 30)
+    ui._t = 2.0
+    ui.draw(screen)  # type: ignore[arg-type]
+    # D3 D4 fill the capacity-2 bottleneck; D1 D2 sit in the 3-slot
+    # wide_area with one slot free.
+    assert "3 4 " in screen.text() and f"1 2 {FREE}" in screen.text()
+
+
+def test_right_arrow_plays_exactly_one_turn() -> None:
+    ui = _ui(Path("data/maps/easy/01_linear_path.txt"))
+    ui.handle(ord(" "))  # pause at 0
+    ui.handle(261)  # KEY_RIGHT
+    ui.advance(0.5)
+    assert 0 < ui._t < 1
+    ui.advance(60)
+    assert ui._t == 1.0 and not ui._playing
