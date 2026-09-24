@@ -136,12 +136,15 @@ class FlightPlanner:
         Una zona restricted richiede due turni: il drone occupa il
         collegamento in entrambi e deve atterrare al secondo, quindi la
         zona deve avere posto in quel momento e non si può aspettare a metà
-        volo.
+        volo. Non si torna mai alla partenza: aspettarci fin dall'inizio
+        porta allo stesso turno senza occupare zone e collegamenti.
         """
         result: list[State] = []
         if self._zone_free(zone, turn + 1):
             result.append((zone, turn + 1))
         for dest in self._graph.neighbours(zone):
+            if dest == self._start:
+                continue  # aspettare alla partenza vale sempre di più
             link = frozenset((zone, dest))
             if self._graph.zone_type(dest) == "restricted":
                 if (self._link_free(link, turn + 1)
