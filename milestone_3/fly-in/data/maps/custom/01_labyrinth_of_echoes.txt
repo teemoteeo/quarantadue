@@ -1,0 +1,324 @@
+# The Labyrinth of Echoes - custom stress map
+# layered lattice + bottleneck gates + dead ends + loops
+nb_drones: 250
+
+start_hub: base 0 3 [color=green max_drones=999]
+end_hub: nexus 17 3 [color=gold]
+
+# layer 0
+hub: L0_0 1 0 [zone=priority color=red]
+hub: L0_1 1 1 [color=green]
+hub: L0_2 1 2 [color=magenta zone=blocked]
+hub: L0_3 1 3 [color=red max_drones=2 zone=priority]
+hub: L0_4 1 4 [color=magenta]
+hub: L0_5 1 5 [color=magenta zone=priority]
+hub: L0_6 1 6 [max_drones=3 color=orange zone=blocked]
+# layer 1
+hub: L1_0 2 0 [color=red zone=priority]
+hub: L1_1 2 1 [max_drones=2 zone=blocked color=cyan]
+hub: L1_2 2 2 [color=blue]
+hub: L1_3 2 3 [color=blue max_drones=2]
+hub: L1_4 2 4 [max_drones=3 color=purple]
+hub: L1_5 2 5 [max_drones=2 color=magenta zone=blocked]
+hub: L1_6 2 6 [color=purple max_drones=3]
+# layer 2
+hub: L2_0 3 0 [color=blue zone=priority]
+hub: L2_1 3 1 [color=purple zone=priority]
+hub: L2_2 3 2 [color=orange]
+hub: L2_3 3 3 [max_drones=2 color=cyan]
+hub: L2_4 3 4 [color=yellow]
+hub: L2_5 3 5 [color=blue zone=priority]
+hub: L2_6 3 6 [zone=restricted color=green]
+# layer 3
+hub: L3_0 4 0 [color=magenta zone=restricted]
+hub: L3_1 4 1 [color=red zone=priority]
+hub: L3_2 4 2 [color=orange]
+hub: L3_3 4 3 [color=yellow]
+hub: L3_4 4 4 [zone=priority color=yellow]
+hub: L3_5 4 5 [max_drones=2 zone=restricted color=green]
+hub: L3_6 4 6 [color=magenta max_drones=3]
+# layer 4
+hub: L4_0 5 0 [zone=blocked color=white]
+hub: L4_1 5 1 [zone=blocked color=white]
+hub: L4_2 5 2 [color=cyan max_drones=2 zone=priority]
+hub: L4_3 5 3 [zone=blocked color=magenta]
+hub: L4_4 5 4 [color=blue max_drones=2 zone=priority]
+hub: L4_5 5 5 [color=green zone=blocked]
+hub: L4_6 5 6 [color=orange zone=blocked]
+# layer 5
+hub: L5_0 6 0 [zone=restricted max_drones=2 color=white]
+hub: L5_1 6 1 [zone=restricted color=blue]
+hub: L5_2 6 2 [zone=priority color=blue]
+hub: L5_3 6 3 [color=gray zone=restricted]
+hub: L5_4 6 4 [color=magenta zone=blocked]
+hub: L5_5 6 5 [color=purple zone=restricted]
+hub: L5_6 6 6 [color=green]
+# layer 6
+hub: L6_0 7 0 [zone=restricted color=red max_drones=3]
+hub: L6_1 7 1 [zone=restricted color=blue]
+hub: L6_2 7 2 [color=red]
+hub: L6_3 7 3 [max_drones=3 color=blue]
+hub: L6_4 7 4 [color=blue zone=blocked max_drones=2]
+hub: L6_5 7 5 [max_drones=2 color=magenta]
+hub: L6_6 7 6 [color=white max_drones=3]
+# layer 7
+hub: L7_0 8 0 [color=yellow max_drones=3]
+hub: L7_1 8 1 [zone=restricted color=gray]
+hub: L7_2 8 2 [color=yellow]
+hub: L7_3 8 3 [color=red]
+hub: L7_4 8 4 [color=yellow zone=priority max_drones=3]
+hub: L7_5 8 5 [color=red]
+hub: L7_6 8 6 [color=red]
+# layer 8
+hub: L8_0 9 0 [color=magenta]
+hub: L8_1 9 1 [color=gray]
+hub: L8_2 9 2 [color=green max_drones=3]
+hub: L8_3 9 3 [max_drones=2 color=orange]
+hub: L8_4 9 4 [color=orange]
+hub: L8_5 9 5 [color=orange max_drones=2]
+hub: L8_6 9 6 [color=blue zone=blocked]
+# layer 9
+hub: L9_0 10 0 [zone=blocked color=orange]
+hub: L9_1 10 1 [color=blue zone=blocked]
+hub: L9_2 10 2 [max_drones=2 color=yellow zone=priority]
+hub: L9_3 10 3 [zone=blocked color=green]
+hub: L9_4 10 4 [zone=priority max_drones=2 color=green]
+hub: L9_5 10 5 [color=yellow zone=blocked]
+hub: L9_6 10 6 [color=gray zone=blocked]
+# layer 10
+hub: L10_0 11 0 [max_drones=3 color=red]
+hub: L10_1 11 1 [color=orange]
+hub: L10_2 11 2 [max_drones=2 zone=restricted color=yellow]
+hub: L10_3 11 3 [color=red max_drones=2]
+hub: L10_4 11 4 [color=purple max_drones=2]
+hub: L10_5 11 5 [color=gray max_drones=3 zone=blocked]
+hub: L10_6 11 6 [color=red]
+# layer 11
+hub: L11_0 12 0 [zone=priority color=red max_drones=3]
+hub: L11_1 12 1 [color=white]
+hub: L11_2 12 2 [color=magenta max_drones=3 zone=restricted]
+hub: L11_3 12 3 [color=green zone=restricted]
+hub: L11_4 12 4 [zone=priority color=yellow]
+hub: L11_5 12 5 [max_drones=3 color=yellow]
+hub: L11_6 12 6 [zone=priority color=orange]
+# layer 12
+hub: L12_0 13 0 [color=cyan]
+hub: L12_1 13 1 [color=orange]
+hub: L12_2 13 2 [color=gray]
+hub: L12_3 13 3 [color=red]
+hub: L12_4 13 4 [color=white max_drones=3 zone=restricted]
+hub: L12_5 13 5 [zone=restricted color=magenta]
+hub: L12_6 13 6 [color=blue]
+# layer 13
+hub: L13_0 14 0 [color=purple]
+hub: L13_1 14 1 [color=magenta max_drones=2]
+hub: L13_2 14 2 [zone=priority color=red max_drones=3]
+hub: L13_3 14 3 [zone=priority color=green]
+hub: L13_4 14 4 [color=magenta]
+hub: L13_5 14 5 [color=purple]
+hub: L13_6 14 6 [color=cyan zone=priority]
+hub: trap0 12 7 [color=purple max_drones=2]
+hub: trap0_deep 13 7 [color=purple zone=priority]
+hub: trap1 3 8 [color=orange max_drones=2]
+hub: trap1_deep 4 8 [color=red zone=priority]
+hub: trap2 7 9 [color=green max_drones=2]
+hub: trap2_deep 8 9 [zone=priority color=green]
+hub: trap4 8 11 [max_drones=2 color=red]
+hub: trap4_deep 9 11 [color=blue zone=priority]
+hub: ring0 3 -2 [max_drones=2 color=cyan]
+hub: ring1 5 -2 [color=orange max_drones=2 zone=restricted]
+hub: ring2 7 -2 [color=purple max_drones=2]
+hub: ring3 9 -2 [max_drones=2 zone=restricted color=red]
+hub: ring4 11 -2 [max_drones=2 color=yellow]
+
+
+connection: L13_6-nexus
+connection: L4_1-L4_2
+connection: L11_5-L12_4
+connection: L1_5-L2_4 [max_link_capacity=2]
+connection: L10_6-L11_5
+connection: ring4-L10_0
+connection: L2_1-L3_0 [max_link_capacity=2]
+connection: L3_5-L4_5
+connection: L3_4-L4_3 [max_link_capacity=3]
+connection: L6_5-L7_5
+connection: L3_6-L4_6 [max_link_capacity=2]
+connection: L6_2-L7_3 [max_link_capacity=3]
+connection: trap4-trap4_deep
+connection: L3_0-L4_0
+connection: L1_2-L2_3
+connection: L9_1-L10_1
+connection: L6_6-L7_5
+connection: L10_4-L11_4 [max_link_capacity=2]
+connection: L8_0-L9_1 [max_link_capacity=3]
+connection: L1_4-L2_4 [max_link_capacity=2]
+connection: L6_2-L7_2
+connection: L5_3-L6_3 [max_link_capacity=2]
+connection: L6_6-trap2
+connection: L9_5-L10_5 [max_link_capacity=3]
+connection: L1_2-L2_1
+connection: L0_2-L1_2
+connection: L1_6-L2_6
+connection: L13_5-nexus
+connection: L10_3-L11_3 [max_link_capacity=2]
+connection: L8_6-L9_6 [max_link_capacity=2]
+connection: L10_5-L11_5 [max_link_capacity=2]
+connection: L0_6-L1_5 [max_link_capacity=2]
+connection: L2_5-trap1
+connection: L6_4-L7_4 [max_link_capacity=2]
+connection: L7_5-L8_5
+connection: L0_2-L0_3
+connection: L8_2-L9_1 [max_link_capacity=3]
+connection: L1_0-ring0
+connection: L5_4-L6_4 [max_link_capacity=3]
+connection: L12_2-L13_3
+connection: L10_5-L11_6
+connection: L2_0-L3_0 [max_link_capacity=3]
+connection: L8_2-L9_2 [max_link_capacity=3]
+connection: L6_2-L7_1 [max_link_capacity=3]
+connection: L11_2-L12_1
+connection: L5_6-L6_5 [max_link_capacity=3]
+connection: L5_6-L6_6
+connection: L9_3-L10_3
+connection: L8_5-L9_5 [max_link_capacity=3]
+connection: L8_1-L8_2
+connection: L12_5-L12_6
+connection: L2_2-L3_2 [max_link_capacity=2]
+connection: L11_4-L12_4
+connection: L4_4-L5_4
+connection: L7_0-L8_0
+connection: L12_5-L13_6
+connection: L7_6-L8_6
+connection: L4_5-L4_6
+connection: L7_1-L8_0 [max_link_capacity=2]
+connection: L0_2-L1_1
+connection: L1_6-L2_5 [max_link_capacity=2]
+connection: L4_5-L5_5
+connection: L13_3-nexus
+connection: L4_0-L5_0 [max_link_capacity=3]
+connection: L0_3-L1_3 [max_link_capacity=2]
+connection: ring0-ring1 [max_link_capacity=2]
+connection: L13_1-nexus
+connection: L12_6-L13_6
+connection: L8_4-L9_4 [max_link_capacity=2]
+connection: L1_5-L2_5 [max_link_capacity=2]
+connection: base-L0_2
+connection: L5_0-L6_0 [max_link_capacity=3]
+connection: L10_1-L10_2
+connection: L12_3-L13_3 [max_link_capacity=3]
+connection: L2_5-L3_4 [max_link_capacity=2]
+connection: L2_5-L3_5
+connection: L1_4-L1_5
+connection: L7_0-L7_1
+connection: L9_6-L10_6
+connection: L0_5-L1_5 [max_link_capacity=2]
+connection: L7_4-L8_4 [max_link_capacity=3]
+connection: L13_2-nexus
+connection: L6_1-L7_2 [max_link_capacity=3]
+connection: L12_3-L13_2 [max_link_capacity=3]
+connection: base-L0_0 [max_link_capacity=2]
+connection: L0_0-L1_0
+connection: ring3-ring4 [max_link_capacity=2]
+connection: L7_2-L8_2
+connection: L5_5-L6_5
+connection: trap0-trap0_deep
+connection: L9_3-L10_4 [max_link_capacity=3]
+connection: L0_6-L1_6
+connection: L11_4-L12_5 [max_link_capacity=2]
+connection: L5_2-L6_2 [max_link_capacity=3]
+connection: L0_1-L1_1
+connection: L12_2-L13_2
+connection: L8_3-L8_4
+connection: trap1-trap1_deep
+connection: L13_0-nexus [max_link_capacity=2]
+connection: L2_6-L3_6 [max_link_capacity=2]
+connection: L12_5-L13_5 [max_link_capacity=3]
+connection: L6_6-L7_6
+connection: L0_4-L1_4 [max_link_capacity=2]
+connection: base-L0_1
+connection: L3_2-L4_3
+connection: L0_2-L1_3
+connection: L9_2-L10_2 [max_link_capacity=2]
+connection: L7_1-L8_2
+connection: L6_1-L7_1
+connection: L2_1-L3_1
+connection: L8_2-L9_3 [max_link_capacity=2]
+connection: L2_0-L2_1
+connection: L6_0-L7_0
+connection: L4_3-L5_3
+connection: L10_1-L11_1 [max_link_capacity=2]
+connection: L2_3-L2_4
+connection: base-L0_5 [max_link_capacity=2]
+connection: L11_0-L12_0
+connection: L1_0-L1_1
+connection: L2_4-L3_4
+connection: L12_0-L13_0
+connection: L10_6-L11_6 [max_link_capacity=2]
+connection: L9_0-L10_1 [max_link_capacity=3]
+connection: L11_5-trap0
+connection: L11_6-L12_6
+connection: L2_2-L2_3
+connection: L11_3-L12_3
+connection: L12_1-L13_1
+connection: L0_1-L1_0 [max_link_capacity=3]
+connection: L9_2-L10_3 [max_link_capacity=2]
+connection: L11_1-L12_1 [max_link_capacity=3]
+connection: L4_3-L5_4
+connection: base-L0_4
+connection: L7_1-L8_1 [max_link_capacity=2]
+connection: ring1-ring2 [max_link_capacity=2]
+connection: L6_3-L7_2 [max_link_capacity=3]
+connection: L12_4-L13_5 [max_link_capacity=2]
+connection: L11_5-L12_5
+connection: L6_4-L7_3 [max_link_capacity=3]
+connection: L4_5-L5_6
+connection: L1_0-L2_0 [max_link_capacity=3]
+connection: base-L0_6 [max_link_capacity=2]
+connection: L11_2-L12_2 [max_link_capacity=2]
+connection: L4_6-L5_6
+connection: L6_3-L7_4 [max_link_capacity=3]
+connection: L5_1-L6_1
+connection: L10_3-L11_2 [max_link_capacity=3]
+connection: L10_2-L10_3
+connection: L7_4-L7_5
+connection: L6_3-L6_4
+connection: L9_1-L9_2
+connection: L1_3-L2_3
+connection: L3_3-L4_3
+connection: L6_5-L6_6
+connection: L8_3-L9_3 [max_link_capacity=3]
+connection: L7_3-L8_3 [max_link_capacity=2]
+connection: L1_2-L2_2 [max_link_capacity=3]
+connection: L11_4-L12_3
+connection: L10_0-L10_1
+connection: L3_1-L4_1
+connection: trap2-trap2_deep
+connection: L10_0-L11_0 [max_link_capacity=2]
+connection: L9_6-L10_5 [max_link_capacity=2]
+connection: L2_3-L3_3
+connection: L13_4-nexus [max_link_capacity=2]
+connection: L7_4-trap4
+connection: L2_1-L2_2
+connection: L10_2-L11_3
+connection: L4_4-L5_5 [max_link_capacity=2]
+connection: L6_2-L6_3
+connection: ring2-ring3 [max_link_capacity=2]
+connection: L10_2-L11_2 [max_link_capacity=2]
+connection: base-L0_3 [max_link_capacity=2]
+connection: L12_4-L13_4
+connection: L8_0-L9_0
+connection: L9_0-L10_0 [max_link_capacity=3]
+connection: L8_1-L9_1
+connection: L3_2-L4_2 [max_link_capacity=3]
+connection: L6_3-L7_3 [max_link_capacity=2]
+connection: L12_2-L13_1
+connection: L4_1-L5_1 [max_link_capacity=3]
+connection: L11_3-L11_4
+connection: L7_3-L8_2
+connection: L0_1-L1_2 [max_link_capacity=3]
+connection: L6_4-L6_5
+connection: L3_4-L4_4
+connection: L9_4-L10_4
+connection: L10_1-L11_2
+connection: L4_2-L5_2 [max_link_capacity=2]
+connection: L1_1-L2_1 [max_link_capacity=3]

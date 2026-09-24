@@ -1,0 +1,350 @@
+# Six Corridors - grid maze, 6 winding lanes separated by walls
+# dead ends (gray priority lures), restricted bends, bridges between
+# lanes. Each lane moves ~1 drone per turn: all six must be used.
+nb_drones: 36
+
+start_hub: base 0 5 [color=green]
+end_hub: nexus 16 5 [color=gold]
+
+hub: A1 1 1 [color=red]
+hub: A2 2 1 [color=red]
+hub: A3 3 1 [zone=restricted color=red]
+hub: A4 3 0 [zone=restricted color=red]
+hub: A5 4 0 [color=red max_drones=2]
+hub: A6 4 1 [color=red]
+hub: A7 5 1 [color=red]
+hub: A8 6 1 [color=red max_drones=2]
+hub: A9 6 0 [color=red]
+hub: A10 7 0 [zone=restricted color=red]
+hub: A11 8 0 [color=red]
+hub: A12 9 0 [color=red]
+hub: A13 9 1 [color=red]
+hub: A14 10 1 [color=red]
+hub: A15 10 0 [zone=priority color=red]
+hub: A16 11 0 [color=red max_drones=2]
+hub: A17 11 1 [zone=priority color=red]
+hub: A18 12 1 [color=red]
+hub: A19 12 0 [color=red max_drones=2]
+hub: A20 13 0 [color=red]
+hub: A21 14 0 [color=red]
+hub: A22 14 1 [color=red]
+hub: A23 15 1 [zone=restricted color=red]
+hub: W0_1 1 0 [zone=blocked color=black]
+hub: W0_2 2 0 [zone=blocked color=black]
+hub: Ax5 5 0 [zone=priority color=gray]
+hub: W0_7 7 1 [zone=blocked color=black]
+hub: W0_8 8 1 [zone=blocked color=black]
+hub: W0_13 13 1 [zone=blocked color=black]
+hub: Ax15 15 0 [zone=priority color=gray]
+hub: B1 1 2 [zone=restricted color=orange max_drones=2]
+hub: B2 2 2 [zone=restricted color=orange]
+hub: B3 3 2 [zone=restricted color=orange]
+hub: B4 4 2 [color=orange]
+hub: B5 5 2 [zone=restricted color=orange]
+hub: B6 5 3 [color=orange]
+hub: B7 6 3 [color=orange]
+hub: B8 7 3 [zone=priority color=orange]
+hub: B9 8 3 [color=orange]
+hub: B10 9 3 [color=orange]
+hub: B11 10 3 [zone=restricted color=orange]
+hub: B12 10 2 [zone=priority color=orange]
+hub: B13 11 2 [color=orange]
+hub: B14 11 3 [zone=restricted color=orange]
+hub: B15 12 3 [color=orange]
+hub: B16 13 3 [color=orange]
+hub: B17 13 2 [color=orange]
+hub: B18 14 2 [color=orange max_drones=2]
+hub: B19 15 2 [color=orange]
+hub: W1_1 1 3 [zone=blocked color=black]
+hub: W1_2 2 3 [zone=blocked color=black]
+hub: W1_3 3 3 [zone=blocked color=black]
+hub: W1_4 4 3 [zone=blocked color=black]
+hub: Bx6 6 2 [zone=priority color=gray]
+hub: W1_7 7 2 [zone=blocked color=black]
+hub: Bx8 8 2 [zone=priority color=gray]
+hub: Bx9 9 2 [zone=priority color=gray]
+hub: Bx12 12 2 [zone=priority color=gray]
+hub: Bx14 14 3 [zone=priority color=gray]
+hub: Bx15 15 3 [zone=priority color=gray]
+hub: C1 1 4 [color=yellow]
+hub: C2 2 4 [color=yellow]
+hub: C3 2 5 [zone=restricted color=yellow]
+hub: C4 3 5 [color=yellow]
+hub: C5 4 5 [color=yellow]
+hub: C6 5 5 [zone=priority color=yellow]
+hub: C7 6 5 [color=yellow]
+hub: C8 7 5 [color=yellow]
+hub: C9 7 4 [zone=priority color=yellow]
+hub: C10 8 4 [zone=restricted color=yellow]
+hub: C11 8 5 [color=yellow]
+hub: C12 9 5 [color=yellow]
+hub: C13 9 4 [color=yellow]
+hub: C14 10 4 [color=yellow]
+hub: C15 11 4 [color=yellow]
+hub: C16 12 4 [zone=priority color=yellow]
+hub: C17 13 4 [color=yellow]
+hub: C18 14 4 [zone=priority color=yellow]
+hub: C19 14 5 [color=yellow]
+hub: C20 15 5 [color=yellow]
+hub: Cx1 1 5 [zone=priority color=gray]
+hub: W2_3 3 4 [zone=blocked color=black]
+hub: Cx4 4 4 [zone=priority color=gray]
+hub: W2_5 5 4 [zone=blocked color=black]
+hub: W2_6 6 4 [zone=blocked color=black]
+hub: Cx10 10 5 [zone=priority color=gray]
+hub: W2_11 11 5 [zone=blocked color=black]
+hub: Cx12 12 5 [zone=priority color=gray]
+hub: Cx13 13 5 [zone=priority color=gray]
+hub: W2_15 15 4 [zone=blocked color=black]
+hub: D1 1 7 [zone=restricted color=green]
+hub: D2 2 7 [color=green]
+hub: D3 2 6 [color=green]
+hub: D4 3 6 [color=green]
+hub: D5 4 6 [color=green]
+hub: D6 5 6 [zone=restricted color=green]
+hub: D7 6 6 [color=green]
+hub: D8 7 6 [zone=restricted color=green]
+hub: D9 8 6 [color=green]
+hub: D10 9 6 [color=green]
+hub: D11 9 7 [zone=restricted color=green max_drones=2]
+hub: D12 10 7 [color=green]
+hub: D13 11 7 [color=green]
+hub: D14 12 7 [color=green]
+hub: D15 13 7 [color=green]
+hub: D16 14 7 [zone=priority color=green]
+hub: D17 15 7 [zone=priority color=green]
+hub: Dx1 1 6 [zone=priority color=gray]
+hub: W3_3 3 7 [zone=blocked color=black]
+hub: Dx4 4 7 [zone=priority color=gray]
+hub: W3_5 5 7 [zone=blocked color=black]
+hub: W3_6 6 7 [zone=blocked color=black]
+hub: W3_7 7 7 [zone=blocked color=black]
+hub: W3_8 8 7 [zone=blocked color=black]
+hub: W3_10 10 6 [zone=blocked color=black]
+hub: W3_11 11 6 [zone=blocked color=black]
+hub: W3_12 12 6 [zone=blocked color=black]
+hub: W3_13 13 6 [zone=blocked color=black]
+hub: W3_14 14 6 [zone=blocked color=black]
+hub: W3_15 15 6 [zone=blocked color=black]
+hub: E1 1 8 [color=cyan max_drones=2]
+hub: E2 2 8 [zone=priority color=cyan max_drones=2]
+hub: E3 3 8 [zone=restricted color=cyan]
+hub: E4 4 8 [zone=restricted color=cyan]
+hub: E5 5 8 [zone=restricted color=cyan]
+hub: E6 6 8 [color=cyan]
+hub: E7 6 9 [zone=priority color=cyan]
+hub: E8 7 9 [color=cyan]
+hub: E9 7 8 [color=cyan]
+hub: E10 8 8 [color=cyan]
+hub: E11 9 8 [color=cyan]
+hub: E12 9 9 [color=cyan]
+hub: E13 10 9 [color=cyan]
+hub: E14 10 8 [color=cyan]
+hub: E15 11 8 [color=cyan]
+hub: E16 12 8 [zone=priority color=cyan]
+hub: E17 13 8 [zone=restricted color=cyan]
+hub: E18 14 8 [color=cyan]
+hub: E19 15 8 [color=cyan]
+hub: Ex1 1 9 [zone=priority color=gray]
+hub: W4_2 2 9 [zone=blocked color=black]
+hub: W4_3 3 9 [zone=blocked color=black]
+hub: Ex4 4 9 [zone=priority color=gray]
+hub: W4_5 5 9 [zone=blocked color=black]
+hub: Ex8 8 9 [zone=priority color=gray]
+hub: W4_11 11 9 [zone=blocked color=black]
+hub: Ex12 12 9 [zone=priority color=gray]
+hub: W4_13 13 9 [zone=blocked color=black]
+hub: W4_14 14 9 [zone=blocked color=black]
+hub: W4_15 15 9 [zone=blocked color=black]
+hub: F1 1 11 [color=magenta max_drones=2]
+hub: F2 2 11 [zone=priority color=magenta max_drones=2]
+hub: F3 2 10 [color=magenta]
+hub: F4 3 10 [zone=restricted color=magenta]
+hub: F5 3 11 [color=magenta]
+hub: F6 4 11 [zone=priority color=magenta max_drones=2]
+hub: F7 5 11 [color=magenta]
+hub: F8 5 10 [color=magenta max_drones=2]
+hub: F9 6 10 [zone=restricted color=magenta]
+hub: F10 7 10 [color=magenta max_drones=2]
+hub: F11 7 11 [color=magenta]
+hub: F12 8 11 [color=magenta max_drones=2]
+hub: F13 8 10 [color=magenta max_drones=2]
+hub: F14 9 10 [color=magenta]
+hub: F15 9 11 [color=magenta]
+hub: F16 10 11 [color=magenta]
+hub: F17 11 11 [zone=restricted color=magenta]
+hub: F18 12 11 [zone=priority color=magenta max_drones=2]
+hub: F19 12 10 [zone=restricted color=magenta max_drones=2]
+hub: F20 13 10 [zone=priority color=magenta]
+hub: F21 14 10 [zone=priority color=magenta]
+hub: F22 15 10 [zone=priority color=magenta]
+hub: Fx1 1 10 [zone=priority color=gray]
+hub: Fx4 4 10 [zone=priority color=gray]
+hub: Fx6 6 11 [zone=priority color=gray]
+hub: Fx10 10 10 [zone=priority color=gray]
+hub: Fx11 11 10 [zone=priority color=gray]
+hub: W5_13 13 11 [zone=blocked color=black]
+hub: W5_14 14 11 [zone=blocked color=black]
+hub: Fx15 15 11 [zone=priority color=gray]
+
+connection: base-A1
+connection: base-B1
+connection: base-C1
+connection: base-D1
+connection: base-E1
+connection: base-F1
+connection: A23-nexus
+connection: B19-nexus
+connection: C20-nexus
+connection: D17-nexus
+connection: E19-nexus
+connection: F22-nexus
+connection: A1-A2
+connection: A2-A3
+connection: A3-A4
+connection: A4-A5
+connection: A5-A6
+connection: A6-A7
+connection: A7-A8
+connection: A8-A9
+connection: A9-A10
+connection: A10-A11
+connection: A11-A12
+connection: A12-A13
+connection: A13-A14
+connection: A14-A15
+connection: A15-A16
+connection: A16-A17
+connection: A17-A18
+connection: A18-A19
+connection: A19-A20
+connection: A20-A21
+connection: A21-A22
+connection: A22-A23
+connection: A7-Ax5
+connection: A23-Ax15
+connection: B1-B2
+connection: B2-B3
+connection: B3-B4
+connection: B4-B5
+connection: B5-B6
+connection: B6-B7
+connection: B7-B8
+connection: B8-B9
+connection: B9-B10
+connection: B10-B11
+connection: B11-B12
+connection: B12-B13
+connection: B13-B14
+connection: B14-B15
+connection: B15-B16
+connection: B16-B17
+connection: B17-B18
+connection: B18-B19
+connection: B7-Bx6
+connection: B9-Bx8
+connection: B10-Bx9
+connection: B15-Bx12
+connection: B18-Bx14
+connection: B19-Bx15
+connection: C1-C2
+connection: C2-C3
+connection: C3-C4
+connection: C4-C5
+connection: C5-C6
+connection: C6-C7
+connection: C7-C8
+connection: C8-C9
+connection: C9-C10
+connection: C10-C11
+connection: C11-C12
+connection: C12-C13
+connection: C13-C14
+connection: C14-C15
+connection: C15-C16
+connection: C16-C17
+connection: C17-C18
+connection: C18-C19
+connection: C19-C20
+connection: C1-Cx1
+connection: C5-Cx4
+connection: C14-Cx10
+connection: C16-Cx12
+connection: C17-Cx13
+connection: D1-D2
+connection: D2-D3
+connection: D3-D4
+connection: D4-D5
+connection: D5-D6
+connection: D6-D7
+connection: D7-D8
+connection: D8-D9
+connection: D9-D10
+connection: D10-D11
+connection: D11-D12
+connection: D12-D13
+connection: D13-D14
+connection: D14-D15
+connection: D15-D16
+connection: D16-D17
+connection: D1-Dx1
+connection: D5-Dx4
+connection: E1-E2
+connection: E2-E3
+connection: E3-E4
+connection: E4-E5
+connection: E5-E6
+connection: E6-E7
+connection: E7-E8
+connection: E8-E9
+connection: E9-E10
+connection: E10-E11
+connection: E11-E12
+connection: E12-E13
+connection: E13-E14
+connection: E14-E15
+connection: E15-E16
+connection: E16-E17
+connection: E17-E18
+connection: E18-E19
+connection: E1-Ex1
+connection: E4-Ex4
+connection: E10-Ex8
+connection: E16-Ex12
+connection: F1-F2
+connection: F2-F3
+connection: F3-F4
+connection: F4-F5
+connection: F5-F6
+connection: F6-F7
+connection: F7-F8
+connection: F8-F9
+connection: F9-F10
+connection: F10-F11
+connection: F11-F12
+connection: F12-F13
+connection: F13-F14
+connection: F14-F15
+connection: F15-F16
+connection: F16-F17
+connection: F17-F18
+connection: F18-F19
+connection: F19-F20
+connection: F20-F21
+connection: F21-F22
+connection: F1-Fx1
+connection: F6-Fx4
+connection: F9-Fx6
+connection: F16-Fx10
+connection: F17-Fx11
+connection: F22-Fx15
+connection: A7-B5
+connection: A3-B3
+connection: B11-C14
+connection: B8-C9
+connection: C11-D9
+connection: C8-D8
+connection: D13-E15
+connection: D14-E16
+connection: E8-F10
+connection: E12-F14
