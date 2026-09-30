@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# mypy
+.mypy_cache/
+
+# pytest
+.pytest_cache/
+
+# Data (large files, model weights)
+data/raw/
+data/processed/
+data/output/
+
+# OS
+.DS_Store
+
+# Subject attachments and local notes (not part of the submission)
+*.zip
+*.pdf
+Intra Projects README.md
+moulinette*
+HANDOFF.md
+.pi/
+data/datasets/

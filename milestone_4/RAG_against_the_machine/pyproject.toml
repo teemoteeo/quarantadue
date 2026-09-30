@@ -1,0 +1,39 @@
+[project]
+name = "rag-against-the-machine"
+version = "0.1.0"
+description = "Retrieval-Augmented Generation system for answering questions about the vLLM codebase."
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "fire>=0.5",
+    "tqdm>=4.66",
+    "rank-bm25>=0.2",
+    "transformers>=5.17.0",
+    "torch>=2.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "flake8>=7.0",
+    "mypy>=1.0",
+    "types-tqdm>=4.70.0.20260906",
+]
+
+[tool.mypy]
+python_version = "3.10"
+# the corpus is Python too: keep it out of `mypy .`
+exclude = ["^data/"]
+
+[[tool.mypy.overrides]]
+# no type stubs published for these
+module = ["fire", "rank_bm25"]
+ignore_missing_imports = true
+
+# campus machines are CPU-only: skip the multi-GB CUDA build of torch on Linux
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
