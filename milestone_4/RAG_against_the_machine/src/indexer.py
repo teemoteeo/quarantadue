@@ -1,18 +1,23 @@
-"""Come tagliare un file in chunk da indicizzare.
+"""Primo passo di `index`: trova i file del corpus e li taglia in chunk.
 
 Un chunk è un pezzo continuo: `content == file[first:last]` e
 `last - first <= max_chunk_size` (la moulinette rifiuta fonti > 2000).
 1. `python_bounds` / `markdown_bounds` trovano i confini naturali
    (funzioni, classi, titoli);
 2. `chunk_at` unisce sezioni vicine finché ci stanno;
-3. `_sub_chunk` spezza a finestre quelle troppo lunghe.
+3. `_sub_chunk` spezza a finestre quelle troppo lunghe;
+4. `walk` fa tutto questo per ogni file del corpus.
 """
 
 import ast
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+from tqdm import tqdm
 
 HEADER_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
+OVERLAP = 200  # chars shared by consecutive windows, see `_sub_chunk`
 
 
 @dataclass(frozen=True)
@@ -31,25 +36,19 @@ def _sub_chunk(
     start_offset: int,
     end_offset: int,
     max_chunk_size: int,
-    overlap: int,
 ) -> list[Chunk]:
     """Copre `content[start_offset:end_offset]` con finestre sovrapposte.
 
     Riserva di `chunk_at` per sezioni troppo lunghe.
     - Ogni finestra finisce su un a capo, se ce n'è uno oltre `overlap`
       (prima non avanzerebbe: ciclo infinito).
-    - `overlap` caratteri in comune tra finestre: una frase tagliata al
+    - `OVERLAP` caratteri in comune tra finestre: una frase tagliata al
       bordo è intera in una delle due. Limitato a metà finestra, sempre
       per garantire che si avanzi.
     - Finestre di soli spazi saltate.
-
-    Raises:
-        ValueError: Se `max_chunk_size < 1`.
     """
-    if max_chunk_size < 1:
-        raise ValueError(f"max_chunk_size must be >= 1, got {max_chunk_size}")
     # an overlap >= the window would never move forward
-    overlap = min(overlap, max_chunk_size // 2)
+    overlap = min(OVERLAP, max_chunk_size // 2)
     chunks: list[Chunk] = []
     pos = start_offset
     while pos < end_offset:
@@ -73,7 +72,6 @@ def chunk_at(
     file_path: str,
     bounds: list[int],
     max_chunk_size: int,
-    overlap: int,
 ) -> list[Chunk]:
     """Taglia il file ai confini `bounds` e unisce le sezioni piccole.
 
@@ -91,15 +89,14 @@ def chunk_at(
     for edge in edges[1:]:
         if edge - start > max_chunk_size:
             chunks += _sub_chunk(content, file_path, start, end,
-                                 max_chunk_size, overlap)
+                                 max_chunk_size)
             start = end
             if edge - start > max_chunk_size:
                 chunks += _sub_chunk(content, file_path, start, edge,
-                                     max_chunk_size, overlap)
+                                     max_chunk_size)
                 start = edge
         end = edge
-    chunks += _sub_chunk(content, file_path, start, end,
-                         max_chunk_size, overlap)
+    chunks += _sub_chunk(content, file_path, start, end, max_chunk_size)
     return chunks
 
 
@@ -137,12 +134,48 @@ def markdown_bounds(content: str) -> list[int]:
     return [m.start() for m in HEADER_RE.finditer(content)]
 
 
+# .txt goes through the text strategy: the docs dataset cites CMakeLists.txt
+BOUNDS = {
+    ".py": python_bounds, ".md": markdown_bounds, ".txt": markdown_bounds,
+}
+
+
+def walk(raw_dir: str | Path, max_chunk_size: int) -> list[Chunk]:
+    """Taglia in chunk ogni file .py/.md/.txt sotto `raw_dir`.
+
+    Chiamata da `build_index`. `BOUNDS` sceglie i confini per tipo di
+    file, `chunk_at` crea i chunk.
+    - `file_path` resta relativo alla cartella di lancio: va lanciato dalla
+      radice, la moulinette vuole percorsi `data/raw/...`.
+    - `newline=""` tiene i `\r\n`: gli indici coincidono col file su disco.
+    - `errors="replace"`: un byte non UTF-8 non ferma tutto.
+
+    Returns:
+        Tutti i chunk, file in ordine alfabetico. File illeggibili saltati.
+    """
+    chunks: list[Chunk] = []
+    files = [p for p in sorted(Path(raw_dir).rglob("*"))
+             if p.suffix.lower() in BOUNDS and p.is_file()]
+    for path in tqdm(files, desc="Chunking", unit="file"):
+        try:
+            # newline="" keeps \r\n, so offsets index the file on disk
+            with open(path, encoding="utf-8", errors="replace",
+                      newline="") as f:
+                content = f.read()
+        except OSError as e:
+            tqdm.write(f"skipping {path}: {e}")
+            continue
+        bounds = BOUNDS[path.suffix.lower()](content)
+        chunks += chunk_at(content, str(path), bounds, max_chunk_size)
+    return chunks
+
+
 if __name__ == "__main__":
     src = "import os\n\n@dec\ndef f():\n    pass\n" + "x = 1\n" * 1000
     md = "# a\n" + "b\n" * 3000
     assert python_bounds(src)[:2] == [0, 11]
     for text, bounds in ((src, python_bounds(src)), (md, markdown_bounds(md))):
-        cs = chunk_at(text, "t", bounds, 200, 20)
+        cs = chunk_at(text, "t", bounds, 200)
         assert cs[0].first_character_index == 0
         assert cs[-1].last_character_index == len(text)
         for c in cs:
@@ -152,9 +185,9 @@ if __name__ == "__main__":
         for a, b in zip(cs, cs[1:]):
             assert b.first_character_index <= a.last_character_index
     # a long line right after a newline must not loop forever
-    assert chunk_at("a\n" + "x" * 5000, "t", [], 2000, 200)
+    assert chunk_at("a\n" + "x" * 5000, "t", [], 2000)
     # neither must a window smaller than the overlap
-    assert chunk_at("x" * 5000, "t", [], 100, 200)
+    assert chunk_at("x" * 5000, "t", [], 100)
     # CRLF: offsets must index the raw text, not a newline-translated one
     crlf = "import os\r\n\r\ndef f():\r\n    pass\r\n"
     assert crlf[python_bounds(crlf)[1]:].startswith("def f")

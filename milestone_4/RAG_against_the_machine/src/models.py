@@ -6,20 +6,8 @@ sempre la forma giusta.
 """
 
 import uuid
-from typing import List, Union
 
 from pydantic import BaseModel, Field
-
-__all__ = [
-    "MinimalSource",
-    "UnansweredQuestion",
-    "AnsweredQuestion",
-    "RagDataset",
-    "MinimalSearchResults",
-    "MinimalAnswer",
-    "StudentSearchResults",
-    "StudentSearchResultsAndAnswer",
-]
 
 
 class MinimalSource(BaseModel):
@@ -44,14 +32,14 @@ class UnansweredQuestion(BaseModel):
 class AnsweredQuestion(UnansweredQuestion):
     """Una domanda con fonti e risposta vere. Usata da `evaluate`."""
 
-    sources: List[MinimalSource]
+    sources: list[MinimalSource]
     answer: str
 
 
 class RagDataset(BaseModel):
-    """Un file di dataset; la `Union` accetta domande con o senza risposta."""
+    """Un file di dataset; l'unione accetta domande con o senza risposta."""
 
-    rag_questions: List[Union[AnsweredQuestion, UnansweredQuestion]]
+    rag_questions: list[AnsweredQuestion | UnansweredQuestion]
 
 
 class MinimalSearchResults(BaseModel):
@@ -59,7 +47,7 @@ class MinimalSearchResults(BaseModel):
 
     question_id: str
     question: str
-    retrieved_sources: List[MinimalSource]
+    retrieved_sources: list[MinimalSource]
 
 
 class MinimalAnswer(MinimalSearchResults):
@@ -75,12 +63,12 @@ class StudentSearchResults(BaseModel):
     rifiuta tutto il file.
     """
 
-    search_results: List[MinimalSearchResults]
+    search_results: list[MinimalSearchResults]
     k: int
 
 
 class StudentSearchResultsAndAnswer(BaseModel):
     """File scritto da `answer_dataset`: fonti più risposta per domanda."""
 
-    search_results: List[MinimalAnswer]
+    search_results: list[MinimalAnswer]
     k: int

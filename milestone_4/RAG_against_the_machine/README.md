@@ -17,11 +17,10 @@ question ──► tokenize ──► BM25 scores ──► top-k MinimalSource 
 
 | File | Role |
 |------|------|
-| `src/indexer/walker.py` | Finds every `.py` / `.md` / `.txt` file under `data/raw/`, reads it byte-exact, routes it to a chunker |
-| `src/indexer/chunker.py` | The two chunking strategies (below) |
+| `src/indexer.py` | Finds every `.py` / `.md` / `.txt` file under `data/raw/`, reads it byte-exact, cuts it with one of the two chunking strategies (below) |
 | `src/retriever.py` | Tokenizer, index build + pickle, `Retriever.search()` |
 | `src/generator.py` | Prompt building and generation with Qwen3-0.6B (`transformers`, CPU) |
-| `src/models/rag_models.py` | Pydantic models exchanged between stages and written as JSON |
+| `src/models.py` | Pydantic models exchanged between stages and written as JSON |
 | `src/__main__.py` | Python Fire CLI, recall@k evaluation, top-level error handling |
 
 The index stores only `(file_path, first, last)` per chunk plus the BM25 statistics. Chunk text is re-read from disk when the generator needs it, so the index stays small (16 MB); re-run `index` if the corpus changes.

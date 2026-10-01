@@ -33,18 +33,18 @@ SYSTEM_PROMPT = (
 class Generator:
     """Modello caricato una volta e riusato per tutte le domande."""
 
-    def __init__(self, model_name: str = MODEL_NAME) -> None:
+    def __init__(self) -> None:
         """Carica tokenizer e pesi (scaricati in cache al primo uso).
 
         `float32` perché su CPU `bfloat16` è circa 6 volte più lento.
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, dtype=torch.float32)  # bf16 is ~6x slower on CPU
+            MODEL_NAME, dtype=torch.float32)  # bf16 is ~6x slower on CPU
 
     def _inputs(self, question: str,
                 sources: list[MinimalSource]) -> BatchEncoding:
-        """Prompt di chat tokenizzato, comune ad `answer` e `stream`.
+        """Prompt di chat tokenizzato per `stream`.
 
         Messaggio di sistema (`SYSTEM_PROMPT`) + messaggio utente con le fonti
         (ognuna preceduta dal suo percorso) e la domanda. Le fonti entrano
@@ -73,21 +73,14 @@ class Generator:
     def answer(self, question: str, sources: list[MinimalSource]) -> str:
         """Risposta intera, per i comandi `answer` e `answer_dataset`.
 
-        `generate` restituisce prompt + risposta: si decodifica solo la parte
-        dopo il prompt. `do_sample=False`: stessa domanda, stessa risposta.
+        Raccoglie i pezzi di `stream`. `do_sample=False`: stessa domanda,
+        stessa risposta.
         """
-        inputs = self._inputs(question, sources)
-        # transformers 5 types from_pretrained() as a class its own
-        # generate() rejects as self; the runtime object is fine
-        output = self.model.generate(  # type: ignore[misc]
-            **inputs, **GENERATE_KWARGS)
-        prompt_len = inputs["input_ids"].shape[1]
-        return str(self.tokenizer.decode(
-            output[0][prompt_len:], skip_special_tokens=True)).strip()
+        return "".join(self.stream(question, sources)).strip()
 
     def stream(self, question: str,
                sources: list[MinimalSource]) -> Iterator[str]:
-        """Come `answer`, ma restituisce la risposta a pezzi. Usata dalla TUI.
+        """Restituisce la risposta a pezzi. Usata dalla TUI e da `answer`.
 
         `generate` gira in un thread e scrive in un `TextIteratorStreamer`, da
         cui si leggono i pezzi. Un errore nel thread viene salvato, lo
