@@ -1,4 +1,8 @@
-"""BM25 index: build it from the corpus, persist it, query it."""
+"""Indice BM25 (la "R" di RAG): costruirlo, salvarlo, interrogarlo.
+
+BM25 e non embedding: veloce su CPU, nessun modello da scaricare, e
+premia le parole rare come i nomi di funzioni che le domande citano.
+"""
 
 import pickle
 import re
@@ -24,16 +28,13 @@ STOPWORDS = frozenset(
 
 
 def tokenize(text: str) -> list[str]:
-    """Split text into lowercase BM25 terms.
+    """Trasforma un testo nei termini per BM25.
 
-    Every identifier is kept whole (to match a verbatim quote) and also
-    split into its snake_case/camelCase parts (to match a paraphrase).
-
-    Args:
-        text: Question or chunk text.
-
-    Returns:
-        Terms, stopwords removed.
+    Usata sia sui chunk (`build_index`) sia sulle domande (`search`): BM25
+    confronta solo termini identici, quindi qui si decide cosa combacia.
+    - Identificatori interi (`get_kv_cache`) per le citazioni esatte, più
+      le parti snake/camelCase (`get`, `kv`, `cache`) per le parafrasi.
+    - Tutto minuscolo; via le `STOPWORDS` (parole ovunque, inclusa "vllm").
     """
     terms: list[str] = []
     for word in WORD_RE.findall(text):
@@ -47,22 +48,21 @@ def tokenize(text: str) -> list[str]:
 def build_index(
     raw_dir: str, processed_dir: str, max_chunk_size: int
 ) -> int:
-    """Chunk the corpus, build BM25 over it and pickle it.
+    """Taglia il corpus, costruisce BM25 e lo salva in `index.pkl`.
 
-    The file path is tokenized with each chunk: a question about LoRA
-    should favour docs/features/lora.md.
-
-    Args:
-        raw_dir: Corpus root.
-        processed_dir: Where index.pkl is written.
-        max_chunk_size: Maximum chunk span, 1 to 2000.
+    Cuore del comando `index`; dopo, ogni ricerca ricarica l'indice pronto.
+    - Il percorso si tokenizza col chunk: una domanda su LoRA favorisce
+      `docs/features/lora.md`.
+    - Si salvano solo (percorso, inizio, fine), non il testo: `read_source`
+      lo rilegge quando serve.
+    - Limite 2000: oltre, la moulinette rifiuta le fonti.
 
     Returns:
-        Number of indexed chunks.
+        Numero di chunk indicizzati.
 
     Raises:
-        ValueError: If max_chunk_size is out of range or the corpus is
-            empty.
+        ValueError: `max_chunk_size` fuori da 1-2000, cartella assente o
+            senza file da indicizzare.
     """
     if not 1 <= max_chunk_size <= 2000:
         raise ValueError("max_chunk_size must be between 1 and 2000")
@@ -84,17 +84,32 @@ def build_index(
     return len(chunks)
 
 
+def read_source(source: MinimalSource) -> str:
+    """Rilegge dal disco il testo `file[first:last]` di una fonte.
+
+    Usata da `Generator` (contesto per Qwen3) e dalla TUI. Stesse opzioni
+    di apertura di `walk`, altrimenti gli indici non combacerebbero.
+    """
+    with open(source.file_path, encoding="utf-8", errors="replace",
+              newline="") as f:
+        return f.read()[source.first_character_index:
+                        source.last_character_index]
+
+
 class Retriever:
-    """A loaded index, reused across queries."""
+    """Indice caricato una volta e riusato per tutte le domande.
+
+    Attributes:
+        sources: (percorso, inizio, fine) per chunk; l'indice nella lista
+            è il numero del chunk in BM25.
+        bm25: Il modello BM25.
+    """
 
     def __init__(self, processed_dir: str) -> None:
-        """Load index.pkl.
-
-        Args:
-            processed_dir: Directory holding index.pkl.
+        """Carica `index.pkl`.
 
         Raises:
-            ValueError: If there is no index yet.
+            ValueError: Indice assente; il messaggio dice di lanciare `index`.
         """
         path = Path(processed_dir) / INDEX_FILE
         if not path.is_file():
@@ -106,15 +121,15 @@ class Retriever:
         self.bm25: BM25Okapi = index["bm25"]
 
     def search(self, query: str, k: int) -> list[MinimalSource]:
-        """Return the k best-scoring chunks for query.
+        """Restituisce le k fonti con il punteggio BM25 più alto.
 
-        Args:
-            query: Natural-language question.
-            k: Number of results wanted, >= 1.
+        Usata da `search`, `search_dataset`, `answer` e dalla TUI.
+        `np.argsort` su tutti i punteggi: semplice e rapido su ~14k chunk.
+        I chunk a punteggio 0 non hanno parole in comune con la domanda e si
+        scartano: una domanda senza senso dà [] e non k fonti a caso.
 
         Returns:
-            Up to k sources, best first. Chunks sharing no term with the
-            query are never returned, so a nonsense query gives [].
+            Fino a k fonti, la migliore per prima.
         """
         terms = tokenize(query)
         if not terms:

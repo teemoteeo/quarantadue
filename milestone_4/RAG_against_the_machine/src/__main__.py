@@ -1,4 +1,10 @@
-"""CLI: uv run python -m src <command> [options]."""
+"""CLI del progetto: `uv run python -m src <comando>` (Python Fire).
+
+Ogni funzione pubblica è un comando; i suoi argomenti diventano opzioni.
+I comandi collegano solo i pezzi: ricerca in `retriever`, risposta in
+`generator`, formati JSON in `models`.
+Ordine: `index`, `search_dataset`, moulinette, `answer_dataset`.
+"""
 
 import sys
 from pathlib import Path
@@ -16,7 +22,10 @@ PROCESSED_DIR = "data/processed"
 
 
 def _query(query: object) -> str:
-    """Validate a query. Fire parses `search 42` as an int, hence object."""
+    """Controlla che la domanda non sia vuota e la restituisce come testo.
+
+    Tipo `object`: Fire converte da solo, `search 42` arriva come int.
+    """
     text = str(query).strip()
     if not text:
         raise ValueError("query is empty")
@@ -24,7 +33,11 @@ def _query(query: object) -> str:
 
 
 def _positive(value: object, name: str = "k") -> int:
-    """Validate a positive int argument (bool is an int, reject it too)."""
+    """Controlla che un argomento sia un intero >= 1 (es. `k=0` rifiutato).
+
+    `bool` escluso a parte: `True` è un int, e `--k` senza valore arriva
+    da Fire proprio come `True`.
+    """
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ValueError(f"{name} must be a positive integer, got {value!r}")
     return value
@@ -32,7 +45,7 @@ def _positive(value: object, name: str = "k") -> int:
 
 def _save(model: StudentSearchResults | StudentSearchResultsAndAnswer,
           save_directory: str, name: str) -> Path:
-    """Write model as JSON to save_directory/name."""
+    """Salva il modello in JSON in `save_directory/name` (crea la cartella)."""
     out = Path(save_directory) / name
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(model.model_dump_json(indent=2), encoding="utf-8")
@@ -40,7 +53,7 @@ def _save(model: StudentSearchResults | StudentSearchResultsAndAnswer,
 
 
 def _print_sources(sources: list[MinimalSource]) -> None:
-    """Print one `path [first:last]` line per source."""
+    """Stampa una riga `percorso [inizio:fine]` per fonte."""
     if not sources:
         print("No matching sources.")
     for s in sources:
@@ -50,12 +63,12 @@ def _print_sources(sources: list[MinimalSource]) -> None:
 
 def index(max_chunk_size: int = 2000, *, raw_dir: str = "data/raw",
           processed_dir: str = PROCESSED_DIR) -> None:
-    """Chunk the corpus and build the BM25 index.
+    """Comando `index`: crea l'indice BM25 (vedi `build_index`), una volta.
 
     Args:
-        max_chunk_size: Maximum chunk span, 1 to 2000.
-        raw_dir: Corpus root.
-        processed_dir: Where the index is written.
+        max_chunk_size: Lunghezza massima di un chunk, da 1 a 2000.
+        raw_dir: Cartella del corpus.
+        processed_dir: Dove scrivere l'indice.
     """
     size = _positive(max_chunk_size, "max_chunk_size")
     n = build_index(raw_dir, processed_dir, size)
@@ -64,26 +77,23 @@ def index(max_chunk_size: int = 2000, *, raw_dir: str = "data/raw",
 
 def search(query: str, k: int = 5, *,
            processed_dir: str = PROCESSED_DIR) -> None:
-    """Print the top-k sources for one query.
-
-    Args:
-        query: The question.
-        k: Number of sources.
-        processed_dir: Where the index lives.
-    """
+    """Comando `search`: stampa le k fonti migliori per una domanda."""
     text, k = _query(query), _positive(k)
     _print_sources(Retriever(processed_dir).search(text, k))
 
 
 def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
                    processed_dir: str = PROCESSED_DIR) -> None:
-    """Search every question of a dataset, save StudentSearchResults.
+    """Comando `search_dataset`: cerca le fonti di ogni domanda.
+
+    Scrive il file valutato dalla moulinette, col nome del dataset.
+    Un solo `Retriever` per tutte le domande: caricarlo è la parte lenta.
 
     Args:
-        dataset_path: RagDataset JSON.
-        save_directory: Output directory; the file keeps the dataset name.
-        k: Number of sources per question.
-        processed_dir: Where the index lives.
+        dataset_path: Dataset JSON (`RagDataset`).
+        save_directory: Cartella di uscita.
+        k: Fonti per domanda.
+        processed_dir: Dove si trova l'indice.
     """
     k = _positive(k)
     dataset = RagDataset.model_validate_json(
@@ -101,12 +111,10 @@ def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
 
 def answer(query: str, k: int = 5, *,
            processed_dir: str = PROCESSED_DIR) -> None:
-    """Retrieve k sources for one query and answer it with the LLM.
+    """Comando `answer`: tutta la pipeline RAG su una domanda.
 
-    Args:
-        query: The question.
-        k: Number of sources given to the model.
-        processed_dir: Where the index lives.
+    Stampa fonti e risposta. `Generator` si importa qui e non in cima:
+    porta `torch`, lento, e i comandi senza generazione restano veloci.
     """
     from src.generator import Generator  # torch import is slow
 
@@ -118,11 +126,14 @@ def answer(query: str, k: int = 5, *,
 
 def answer_dataset(student_search_results_path: str,
                    save_directory: str) -> None:
-    """Answer every question of a search results file.
+    """Comando `answer_dataset`: risponde a ogni domanda di un file.
+
+    Usa le fonti già trovate da `search_dataset` (nessuna nuova ricerca)
+    e un solo `Generator` per tutto il file.
 
     Args:
-        student_search_results_path: StudentSearchResults JSON.
-        save_directory: Output directory; the file keeps the input name.
+        student_search_results_path: File scritto da `search_dataset`.
+        save_directory: Cartella di uscita.
     """
     from src.generator import Generator  # torch import is slow
 
@@ -142,7 +153,11 @@ def answer_dataset(student_search_results_path: str,
 
 
 def _found(truth: MinimalSource, got: list[MinimalSource]) -> bool:
-    """True if a retrieved source is in the same file with IoU >= 0.05."""
+    """True se una fonte vera è stata trovata (stessa regola della moulinette).
+
+    Conta se è nello stesso file con IoU >= 0.05, dove IoU = caratteri in
+    comune / caratteri coperti da almeno una delle due.
+    """
     for s in got:
         if s.file_path != truth.file_path:
             continue
@@ -158,11 +173,15 @@ def _found(truth: MinimalSource, got: list[MinimalSource]) -> bool:
 
 
 def evaluate(student_search_results_path: str, dataset_path: str) -> None:
-    """Print recall@1/3/5/10 of search results against a ground truth.
+    """Comando `evaluate`: stampa recall@1/3/5/10 per test locali.
+
+    Il punteggio ufficiale è della moulinette, che non possiamo chiamare:
+    la sua regola è rifatta in `_found`. Recall@k = quota di fonti vere
+    trovate nei primi k, media sulle domande.
 
     Args:
-        student_search_results_path: StudentSearchResults JSON.
-        dataset_path: RagDataset JSON with AnsweredQuestions.
+        student_search_results_path: File scritto da `search_dataset`.
+        dataset_path: Dataset con le risposte vere.
     """
     results = StudentSearchResults.model_validate_json(
         Path(student_search_results_path).read_text(encoding="utf-8"))
@@ -183,13 +202,24 @@ def evaluate(student_search_results_path: str, dataset_path: str) -> None:
         print(f"Recall@{k}: {recall:.3f} ({recall:.1%})")
 
 
+def tui(*, processed_dir: str = PROCESSED_DIR) -> None:
+    """Comando `tui`: interfaccia interattiva (extra, non nel subject)."""
+    from src.tui import run_tui
+
+    run_tui(processed_dir)
+
+
 def main() -> None:
-    """Run the CLI; any error becomes a one-line message, not a trace."""
+    """Avvia Fire; ogni errore diventa una riga `Error: ...`, mai un traceback.
+
+    Solo le funzioni nel dizionario sono comandi. Ctrl+C esce con 130.
+    """
     try:
         fire.Fire({
             "index": index, "search": search,
             "search_dataset": search_dataset, "answer": answer,
             "answer_dataset": answer_dataset, "evaluate": evaluate,
+            "tui": tui,
         })
     except KeyboardInterrupt:
         sys.exit(130)

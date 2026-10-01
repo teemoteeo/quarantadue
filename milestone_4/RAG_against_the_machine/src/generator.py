@@ -1,14 +1,27 @@
-"""Answer generation with Qwen3 over retrieved sources."""
+"""Risposta con Qwen3 (la "G" di RAG) usando il testo delle fonti.
+
+Il modello non conosce vLLM: legge le fonti nel prompt e risponde solo
+da quelle. Importato solo quando serve, perché `torch` è lento.
+"""
+
+from collections.abc import Iterator
+from threading import Thread
+from typing import Any
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM, AutoTokenizer, BatchEncoding, TextIteratorStreamer,
+)
 
 from src.models import MinimalSource
+from src.retriever import read_source
 
 MODEL_NAME = "Qwen/Qwen3-0.6B"
 # ponytail: a char budget, not a token one; 5 sources of 2000 chars is
 # ~3-4k tokens, far under Qwen3's 32k window. Count tokens if k grows.
 MAX_CONTEXT_CHARS = 12000
+GENERATE_KWARGS: dict[str, Any] = {"max_new_tokens": 256, "do_sample": False,
+                                   "repetition_penalty": 1.1}
 SYSTEM_PROMPT = (
     "You answer questions about the vLLM codebase using only the context "
     "snippets provided. Be concise and precise: name the exact functions, "
@@ -17,43 +30,26 @@ SYSTEM_PROMPT = (
 )
 
 
-def read_source(source: MinimalSource) -> str:
-    """Return the text a source points to.
-
-    Args:
-        source: File path and character span.
-
-    Returns:
-        file[first:last], read exactly as the indexer read it.
-    """
-    with open(source.file_path, encoding="utf-8", errors="replace",
-              newline="") as f:
-        return f.read()[source.first_character_index:
-                        source.last_character_index]
-
-
 class Generator:
-    """A loaded model, reused across questions."""
+    """Modello caricato una volta e riusato per tutte le domande."""
 
     def __init__(self, model_name: str = MODEL_NAME) -> None:
-        """Load tokenizer and weights (downloaded on first use).
+        """Carica tokenizer e pesi (scaricati in cache al primo uso).
 
-        Args:
-            model_name: Hugging Face model id.
+        `float32` perché su CPU `bfloat16` è circa 6 volte più lento.
         """
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name, dtype=torch.float32)  # bf16 is ~6x slower on CPU
 
-    def answer(self, question: str, sources: list[MinimalSource]) -> str:
-        """Answer question from the sources' text.
+    def _inputs(self, question: str,
+                sources: list[MinimalSource]) -> BatchEncoding:
+        """Prompt di chat tokenizzato, comune ad `answer` e `stream`.
 
-        Args:
-            question: The user question.
-            sources: Retrieved sources, best first.
-
-        Returns:
-            The model's answer.
+        Messaggio di sistema (`SYSTEM_PROMPT`) + messaggio utente con le fonti
+        (ognuna preceduta dal suo percorso) e la domanda. Le fonti entrano
+        dalla migliore finché stanno in `MAX_CONTEXT_CHARS`.
+        `enable_thinking=False`: niente ragionamento, molto più veloce su CPU.
         """
         context, used = [], 0
         for s in sources:
@@ -70,12 +66,51 @@ class Generator:
         prompt = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True,
             enable_thinking=False)
-        inputs = self.tokenizer(str(prompt), return_tensors="pt")
+        inputs: BatchEncoding = self.tokenizer(str(prompt),
+                                               return_tensors="pt")
+        return inputs
+
+    def answer(self, question: str, sources: list[MinimalSource]) -> str:
+        """Risposta intera, per i comandi `answer` e `answer_dataset`.
+
+        `generate` restituisce prompt + risposta: si decodifica solo la parte
+        dopo il prompt. `do_sample=False`: stessa domanda, stessa risposta.
+        """
+        inputs = self._inputs(question, sources)
         # transformers 5 types from_pretrained() as a class its own
         # generate() rejects as self; the runtime object is fine
         output = self.model.generate(  # type: ignore[misc]
-            **inputs, max_new_tokens=256, do_sample=False,
-            repetition_penalty=1.1)
+            **inputs, **GENERATE_KWARGS)
         prompt_len = inputs["input_ids"].shape[1]
         return str(self.tokenizer.decode(
             output[0][prompt_len:], skip_special_tokens=True)).strip()
+
+    def stream(self, question: str,
+               sources: list[MinimalSource]) -> Iterator[str]:
+        """Come `answer`, ma restituisce la risposta a pezzi. Usata dalla TUI.
+
+        `generate` gira in un thread e scrive in un `TextIteratorStreamer`, da
+        cui si leggono i pezzi. Un errore nel thread viene salvato, lo
+        streamer chiuso (se no si aspetterebbe per sempre) e l'errore
+        rilanciato alla fine.
+        """
+        inputs = self._inputs(question, sources)
+        streamer = TextIteratorStreamer(
+            self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+        errors: list[Exception] = []
+
+        def run() -> None:
+            try:
+                self.model.generate(  # type: ignore[misc]
+                    **inputs, **GENERATE_KWARGS, streamer=streamer)
+            except Exception as e:  # re-raised below, in the caller
+                errors.append(e)
+                # what streamer.end() does, minus its untyped signature
+                streamer.text_queue.put(streamer.stop_signal)
+
+        thread = Thread(target=run, daemon=True)
+        thread.start()
+        yield from streamer
+        thread.join()
+        if errors:
+            raise errors[0]

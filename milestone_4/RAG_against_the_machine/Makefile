@@ -1,10 +1,17 @@
-.PHONY: install run debug clean lint lint-strict
+.PHONY: install run tui debug clean lint lint-strict
+
+# 42 home quota is ~5GB: keep uv cache and HF model weights on sgoinfre
+export UV_CACHE_DIR := $(CURDIR)/.cache/uv
+export HF_HOME := $(CURDIR)/.cache/huggingface
 
 install:
 	uv sync --extra dev
 
 run:
 	uv run python -m src $(CMD)
+
+tui:
+	uv run python -m src tui
 
 debug:
 	uv run python -m pdb -c continue -m src $(CMD)

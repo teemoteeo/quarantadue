@@ -62,10 +62,10 @@ Measured on the public datasets with this repo's `evaluate` command (same rule a
 
 | max_chunk_size | chunks | docs | code |
 |----------------|--------|------|------|
-| 500  | 69,998 | 82.0% | 75.8% |
-| 1000 | 28,110 | 85.0% | 78.8% |
-| 1500 | 18,407 | 85.0% | 80.8% |
-| 2000 | 13,885 | **86.0%** | **82.8%** |
+| 500  | 69,996 | 82.0% | 75.8% |
+| 1000 | 28,111 | 85.0% | 78.8% |
+| 1500 | 18,408 | 85.0% | 80.8% |
+| 2000 | 13,887 | **86.0%** | **82.8%** |
 
 Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins on both sets.
 
@@ -79,13 +79,13 @@ Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins
 | without stopword removal | 84.0% | 75.8% |
 | naive `text.lower().split()` | 72.0% | 15.2% |
 
-**Speed** (Apple Silicon laptop, CPU only):
+**Speed** (42 campus machine: Intel i7-10700, 8 cores, CPU only):
 
 | Step | Time | Limit |
 |------|------|-------|
-| `index` (1,969 files → 13,885 chunks) | ~3 s | 5 min |
-| `search_dataset`, 199 questions, cold start | ~4 s | 90 s |
-| `answer_dataset`, 100 questions | ~7.8 min (~4.7 s/question, k=10 results, context capped at 12,000 chars) | — |
+| `index` (1,969 files → 13,887 chunks) | ~5 s | 5 min |
+| `search_dataset`, docs (100 q) + code (99 q), cold start each | 3.0 s + 3.9 s | 90 s |
+| `answer_dataset`, first 10 docs questions, k=10 results | 4 min 41 s (~28 s/question, model load excluded), context capped at 12,000 chars | — |
 
 ## Design Decisions
 
@@ -93,7 +93,7 @@ Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins
 2. **Split identifiers but keep them whole** — the subject's hint: questions either paraphrase or quote code. Both forms are indexed, so both match (+19 pts code recall).
 3. **File path in the indexed text** — file names are the best summary of their content (`docs/features/lora.md`); +6 pts code recall.
 4. **Contiguous, packed chunks** — nothing between functions (imports, constants) is lost, and every chunk is a valid source span for the grader.
-5. **Pickle for the index** — one `pickle.dump` of the BM25 object; loads in well under a second. It is only ever read from `data/processed/`, which only `index` writes.
+5. **Pickle for the index** — one `pickle.dump` of the BM25 object; loads in about a second. It is only ever read from `data/processed/`, which only `index` writes.
 6. **Qwen3 in float32, thinking disabled** — bfloat16 matmuls are ~6× slower on CPU; `enable_thinking=False` stops the model spending its token budget on a hidden reasoning trace. Greedy decoding, 256 new tokens, a 12,000-char context budget (~3-4k tokens, well within Qwen3's window).
 7. **One error boundary** — every command validates its inputs; `main()` turns any remaining exception into a one-line `Error: …` and exit code 1, so the CLI never prints a traceback.
 
@@ -102,7 +102,7 @@ Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins
 - **Chunk spans vs. the 2000-char limit** — segments must be packed without ever crossing the limit, and oversized classes need a window that always moves forward (a window smaller than the overlap used to loop forever; the overlap is now capped at half the window).
 - **Byte-exact offsets** — newline translation silently shifted offsets in CRLF files; fixed by reading with `newline=""`.
 - **Vocabulary mismatch** — questions say "KV cache", code says `kv_cache_manager`; identifier splitting bridged it (code recall 63.6% → 82.8%).
-- **CPU generation speed** — `dtype="auto"` loads Qwen3 in bfloat16, ~65 s per answer on CPU; float32 brought it to ~5 s.
+- **CPU generation speed** — `dtype="auto"` loads Qwen3 in bfloat16, about 6× slower per answer on CPU than float32.
 - **Linting the corpus** — `flake8 .` / `mypy .` also scanned the vLLM sources; `data/` is excluded in `.flake8` and `pyproject.toml`.
 
 ## Instructions

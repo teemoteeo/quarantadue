@@ -1,2 +1,2 @@
 [flake8]
-extend-exclude = .venv,data
+extend-exclude = .venv,.cache,data

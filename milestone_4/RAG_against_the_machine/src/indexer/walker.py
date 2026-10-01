@@ -1,4 +1,4 @@
-"""File walker for the RAG indexer."""
+"""Primo passo di `index`: trova i file del corpus e li taglia in chunk."""
 
 from pathlib import Path
 
@@ -19,18 +19,22 @@ def walk(
     max_chunk_size: int,
     overlap: int = 200,
 ) -> list[Chunk]:
-    """Chunk every .py/.md/.txt file under raw_dir.
+    """Taglia in chunk ogni file .py/.md/.txt sotto `raw_dir`.
 
-    file_path is kept as given (relative to the cwd), so run from the
-    project root to get the data/raw/... paths the grader expects.
+    Chiamata da `build_index`. `BOUNDS` sceglie i confini per tipo di
+    file, `chunk_at` crea i chunk.
+    - `file_path` resta relativo alla cartella di lancio: va lanciato dalla
+      radice, la moulinette vuole percorsi `data/raw/...`.
+    - `newline=""` tiene i `\r\n`: gli indici coincidono col file su disco.
+    - `errors="replace"`: un byte non UTF-8 non ferma tutto.
 
     Args:
-        raw_dir: Corpus root.
-        max_chunk_size: Maximum chunk span, must be >= 1.
-        overlap: Overlap used when an oversized segment is windowed.
+        raw_dir: Cartella del corpus.
+        max_chunk_size: Lunghezza massima di un chunk.
+        overlap: Sovrapposizione delle finestre (vedi `_sub_chunk`).
 
     Returns:
-        All chunks, files in sorted order. Unreadable files are skipped.
+        Tutti i chunk, file in ordine alfabetico. File illeggibili saltati.
     """
     chunks: list[Chunk] = []
     files = [p for p in sorted(Path(raw_dir).rglob("*"))

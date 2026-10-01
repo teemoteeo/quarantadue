@@ -1,7 +1,11 @@
-"""Chunking strategies for Python and Markdown files.
+"""Come tagliare un file in chunk da indicizzare.
 
-Every chunk is a contiguous slice: content == file[first:last], and
-last - first <= max_chunk_size (the moulinette checks the span).
+Un chunk è un pezzo continuo: `content == file[first:last]` e
+`last - first <= max_chunk_size` (la moulinette rifiuta fonti > 2000).
+1. `python_bounds` / `markdown_bounds` trovano i confini naturali
+   (funzioni, classi, titoli);
+2. `chunk_at` unisce sezioni vicine finché ci stanno;
+3. `_sub_chunk` spezza a finestre quelle troppo lunghe.
 """
 
 import ast
@@ -13,7 +17,7 @@ HEADER_RE = re.compile(r"^#{1,6}\s", re.MULTILINE)
 
 @dataclass(frozen=True)
 class Chunk:
-    """A contiguous slice of a corpus file, ready to be indexed."""
+    """Pezzo di un file. `content` serve solo a tokenizzare, non si salva."""
 
     content: str
     file_path: str
@@ -29,23 +33,18 @@ def _sub_chunk(
     max_chunk_size: int,
     overlap: int,
 ) -> list[Chunk]:
-    """Cover content[start_offset:end_offset] with overlapping windows.
+    """Copre `content[start_offset:end_offset]` con finestre sovrapposte.
 
-    Each window ends on a newline when one is available past the overlap.
-
-    Args:
-        content: Full file text.
-        file_path: Path stored in every chunk.
-        start_offset: First character to cover.
-        end_offset: One past the last character to cover.
-        max_chunk_size: Maximum window span, must be >= 1.
-        overlap: Characters shared by consecutive windows.
-
-    Returns:
-        The windows, skipping whitespace-only ones.
+    Riserva di `chunk_at` per sezioni troppo lunghe.
+    - Ogni finestra finisce su un a capo, se ce n'è uno oltre `overlap`
+      (prima non avanzerebbe: ciclo infinito).
+    - `overlap` caratteri in comune tra finestre: una frase tagliata al
+      bordo è intera in una delle due. Limitato a metà finestra, sempre
+      per garantire che si avanzi.
+    - Finestre di soli spazi saltate.
 
     Raises:
-        ValueError: If max_chunk_size < 1.
+        ValueError: Se `max_chunk_size < 1`.
     """
     if max_chunk_size < 1:
         raise ValueError(f"max_chunk_size must be >= 1, got {max_chunk_size}")
@@ -76,19 +75,15 @@ def chunk_at(
     max_chunk_size: int,
     overlap: int,
 ) -> list[Chunk]:
-    """Split content at bounds and pack adjacent segments into chunks.
+    """Taglia il file ai confini `bounds` e unisce le sezioni piccole.
 
-    Segments longer than max_chunk_size fall back to _sub_chunk.
-
-    Args:
-        content: Full file text.
-        file_path: Path stored in every chunk.
-        bounds: Offsets where a natural section starts.
-        max_chunk_size: Maximum chunk span, must be >= 1.
-        overlap: Overlap used when an oversized segment is windowed.
+    Chiamata da `walk`. Tiene aperto un chunk e ci aggiunge sezioni finché
+    resta sotto `max_chunk_size`, poi lo chiude. Unire serve perché chunk
+    di poche righe danno poche parole a BM25 e poco contesto a Qwen3.
+    Una sezione troppo lunga da sola va a `_sub_chunk`.
 
     Returns:
-        Chunks covering the whole file, in order.
+        Chunk che coprono tutto il file, in ordine.
     """
     edges = sorted({0, len(content), *bounds})
     chunks: list[Chunk] = []
@@ -109,13 +104,15 @@ def chunk_at(
 
 
 def python_bounds(content: str) -> list[int]:
-    """Find where each top-level statement starts, decorators included.
+    """Indici dove inizia ogni istruzione di primo livello di un .py.
 
-    Args:
-        content: Python source.
+    Usa `ast` e non una regex: è sicuro anche con `def` dentro stringhe.
+    I decoratori restano con la loro funzione. `ast` dà righe, quindi
+    `line_starts` le traduce in indici (split su `"\n"`: `\r\n` vale 2,
+    come nel file vero).
 
     Returns:
-        Character offsets, or [] if the source does not parse.
+        Indici, o [] se non è Python valido (si taglia solo a finestre).
     """
     try:
         tree = ast.parse(content)
@@ -133,13 +130,9 @@ def python_bounds(content: str) -> list[int]:
 
 
 def markdown_bounds(content: str) -> list[int]:
-    """Find where each Markdown header line starts.
+    """Indici delle righe di titolo Markdown (da `#` a `######`).
 
-    Args:
-        content: Markdown or plain text.
-
-    Returns:
-        Character offsets of lines starting with 1-6 '#' and a space.
+    Ogni titolo apre una sezione: buon punto di taglio. Usata per .md e .txt.
     """
     return [m.start() for m in HEADER_RE.finditer(content)]
 

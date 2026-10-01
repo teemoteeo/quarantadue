@@ -34,3 +34,6 @@ moulinette*
 HANDOFF.md
 .pi/
 data/datasets/
+
+# uv / HuggingFace caches (see Makefile)
+.cache/

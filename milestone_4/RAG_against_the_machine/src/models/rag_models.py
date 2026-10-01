@@ -1,4 +1,9 @@
-"""Pydantic data models for the RAG pipeline."""
+"""Modelli Pydantic: la forma di ogni file JSON letto o scritto.
+
+Il formato è imposto dal subject (la moulinette rifiuta file sbagliati).
+`model_validate_json` controlla i file letti, `model_dump_json` scrive
+sempre la forma giusta.
+"""
 
 import uuid
 from typing import List, Union
@@ -18,7 +23,11 @@ __all__ = [
 
 
 class MinimalSource(BaseModel):
-    """A span of a corpus file, as file[first:last]."""
+    """Un pezzo di file del corpus: `file[first:last]`. È una "fonte".
+
+    Creata da `Retriever.search`; per la moulinette è giusta se sta nello
+    stesso file della fonte vera e si sovrappone con IoU >= 0.05.
+    """
 
     file_path: str
     first_character_index: int
@@ -26,27 +35,27 @@ class MinimalSource(BaseModel):
 
 
 class UnansweredQuestion(BaseModel):
-    """A question, with a random UUID when none is given."""
+    """Una domanda; senza `question_id` ne riceve uno casuale (UUID)."""
 
     question_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     question: str
 
 
 class AnsweredQuestion(UnansweredQuestion):
-    """A question with its ground-truth sources and answer."""
+    """Una domanda con fonti e risposta vere. Usata da `evaluate`."""
 
     sources: List[MinimalSource]
     answer: str
 
 
 class RagDataset(BaseModel):
-    """A dataset file: answered and/or unanswered questions."""
+    """Un file di dataset; la `Union` accetta domande con o senza risposta."""
 
     rag_questions: List[Union[AnsweredQuestion, UnansweredQuestion]]
 
 
 class MinimalSearchResults(BaseModel):
-    """The top-k sources retrieved for one question."""
+    """Le k fonti migliori trovate per una domanda, in ordine."""
 
     question_id: str
     question: str
@@ -54,20 +63,24 @@ class MinimalSearchResults(BaseModel):
 
 
 class MinimalAnswer(MinimalSearchResults):
-    """Search results plus the generated answer."""
+    """Risultati della ricerca più la risposta di Qwen3."""
 
     answer: str
 
 
 class StudentSearchResults(BaseModel):
-    """Output of search_dataset, read by the moulinette."""
+    """File scritto da `search_dataset`, valutato dalla moulinette.
+
+    Ogni fonte deve stare sotto i 2000 caratteri, altrimenti la moulinette
+    rifiuta tutto il file.
+    """
 
     search_results: List[MinimalSearchResults]
     k: int
 
 
 class StudentSearchResultsAndAnswer(BaseModel):
-    """Output of answer_dataset."""
+    """File scritto da `answer_dataset`: fonti più risposta per domanda."""
 
     search_results: List[MinimalAnswer]
     k: int
