@@ -107,13 +107,27 @@ QUESTIONS = (
 )
 KS = (1, 3, 5, 10)
 STEP_MS = 300  # how long each question word stays lit
-HELP = ("Enter run | Tab questions | Up/Down source | ^P answer/source | "
+HELP = ("Enter run | Tab questions | Up/Down source | ^P words/source | "
         "PgUp/PgDn scroll | ^K k | ^U clear | Esc quit")
 MIN_H, MIN_W = 20, 80
 # chunk states; the highest one wins when chunks share a braille cell
 OFF, SEEN, NOW, TOP, SEL = 0, 1, 2, 3, 4
-GRID_W = 96  # cells; 13887 chunks / 8 dots fit in ~22 rows of groups
 LABEL_W = 20  # group names left of the grid
+GRID_MAX = 80  # grid cells per row; wider only to keep 1 dot = 1 chunk
+SRC_W, SRC_MIN = 56, 40  # sources column: shrinks to fit 1 dot = 1 chunk
+ANSWER_MIN = 6  # rows always left to the answer box, borders included
+TITLE = "RAG AGAINST THE MACHINE"
+# 5-pixel-high font for the title, drawn two pixel rows per text row
+FONT = {
+    "A": ".#.|#.#|###|#.#|#.#", "C": ".##|#..|#..|#..|.##",
+    "E": "###|#..|##.|#..|###", "G": ".###|#...|#.##|#..#|.###",
+    "H": "#.#|#.#|###|#.#|#.#", "I": "###|.#.|.#.|.#.|###",
+    "M": "#...#|##.##|#.#.#|#...#|#...#", "N": "#..#|##.#|#.##|#..#|#..#",
+    "R": "##.|#.#|##.|#.#|#.#", "S": ".##|#..|.#.|..#|##.",
+    "T": "###|.#.|.#.|.#.|.#.", " ": "..|..|..|..|..",
+}
+HALF = {(False, False): " ", (True, False): "\u2580",
+        (False, True): "\u2584", (True, True): "\u2588"}
 # braille dot bit for the j-th chunk of a cell, filled left-right, top-down
 DOT_BITS = np.array([0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80])
 
@@ -138,11 +152,29 @@ def braille(state: NDArray[np.int8],
     return "".join(chr(0x2800 + int(b)) for b in bits), level
 
 
+def banner(text: str) -> list[str]:
+    rows = [""] * 5
+    for ch in text:
+        for r, bits in enumerate(FONT[ch].split("|")):
+            rows[r] += bits + "."
+    rows.append("." * len(rows[0]))  # pad to an even pixel height
+    return ["".join(HALF[(a == "#", b == "#")] for a, b in zip(top, bot))
+            .rstrip() for top, bot in zip(rows[::2], rows[1::2])]
+
+
 def grid_rows(sizes: list[int], width: int, per: int) -> int:
     def ceil(a: int, b: int) -> int:
         return -(-a // b)
 
     return sum(ceil(ceil(ceil(n, per), 8), width) for n in sizes)
+
+
+def fit_per(sizes: list[int], width: int, rows: int) -> int:
+    per = 1
+    # each group needs a row whatever per is: stop there on tiny screens
+    while grid_rows(sizes, width, per) > max(rows, len(sizes)):
+        per += 1
+    return per
 
 
 def group_chunks(paths: list[str], split: float = 0.25,
@@ -185,32 +217,40 @@ class App:
         self.state = np.zeros(len(retriever.sources), dtype=np.int8)
         self.query = ""
         self.marks: list[tuple[int, int, int]] = []  # query spans + attr
+        self.words: list[tuple[str, int]] = []  # chunks per word, -1 = skip
         self.k = 5
         self.sources: list[MinimalSource] = []
         self.scores: list[float] = []  # BM25 score of each source
         self.sel = 0
         self.answer = ""
-        self.show_source = False
+        self.loading = False  # Qwen3 weights being loaded
+        self.show_source = False  # beside the grid: source text, not words
+        self.src_scroll = 0
         self.scroll = 0
         self.follow = True  # keep the streaming answer's tail in view
         self.picking = False
         self.pick = 0
-        self.status = "Type a question or press Tab to pick one"
+        self.status = f"Index loaded: {len(retriever.sources)} chunks"
+        grey = curses.has_colors() and curses.COLORS >= 256
         if curses.has_colors():
             curses.use_default_colors()
-            for pair, color in enumerate((curses.COLOR_CYAN,
+            # 1 off, 2 seen: dark and mid grey, or plain dim/normal
+            for pair, color in enumerate((237 if grey else -1,
+                                          250 if grey else -1,
                                           curses.COLOR_YELLOW,
                                           curses.COLOR_GREEN,
                                           curses.COLOR_MAGENTA), 1):
                 curses.init_pair(pair, color, -1)
-        self.attr = {OFF: curses.A_DIM,
-                     SEEN: curses.color_pair(1),
-                     NOW: curses.color_pair(2) | curses.A_BOLD,
-                     TOP: curses.color_pair(3) | curses.A_REVERSE
+        self.attr = {OFF: curses.color_pair(1) if grey else curses.A_DIM,
+                     SEEN: curses.color_pair(2),
+                     NOW: curses.color_pair(3) | curses.A_BOLD,
+                     TOP: curses.color_pair(4) | curses.A_REVERSE
                      | curses.A_BOLD,
-                     SEL: curses.color_pair(4) | curses.A_REVERSE
+                     SEL: curses.color_pair(5) | curses.A_REVERSE
                      | curses.A_BOLD}
-        self.word_attr = self.attr[SEL]
+        # the word being read has the color of the chunks it lights up
+        self.word_attr = self.attr[NOW] | curses.A_REVERSE
+        self.title = banner(TITLE)
 
     def put(self, y: int, x: int, text: str, attr: int = 0) -> None:
         h, w = self.scr.getmaxyx()
@@ -231,48 +271,74 @@ class App:
             self.put(0, 0, f"Terminal too small (min {MIN_W}x{MIN_H})")
             self.scr.refresh()
             return
-        self.put(0, 0, f" RAG against the machine  k={self.k} ".ljust(w),
-                 curses.A_REVERSE)
-        cursor = self.draw_query(w)
-        self.put(3, 0, self.status[:w - 1], curses.A_DIM)
+        top = self.draw_title(w)
+        cursor = self.draw_query(top, w)
+        self.put(top + 4, 0, self.status[:w - 1], curses.A_DIM)
         self.put(h - 1, 0, HELP[:w - 1], curses.A_DIM)
-        # grid on the left, sources on its right, answer below both
-        grid_w = min(GRID_W, (w - LABEL_W) * 3 // 5)
+        # grid on the left, sources on its right, answer below both. The
+        # grid is exactly as tall as it needs; it widens past GRID_MAX,
+        # then squeezes the sources, only to keep 1 dot = 1 chunk
+        y = top + 6  # first grid row
         sizes = [len(ix) for _, ix in self.groups]
-        mid_h = min(grid_rows(sizes, grid_w, 1), max(4, h // 2))
-        self.draw_grid(5, grid_w, mid_h)
-        x = LABEL_W + grid_w + 1
-        self.draw_sources(4, x, w - x - 1, mid_h + 1)
-        self.draw_panel(5 + mid_h, h - 6 - mid_h, w)
+        widths = [w - LABEL_W - 1 - src for src in (SRC_W, SRC_MIN)]
+        for grid_w in (min(GRID_MAX, widths[0]), *widths):
+            grid_w = max(24, grid_w)
+            per = fit_per(sizes, grid_w, h - y - 1 - ANSWER_MIN)
+            if per == 1:
+                break
+        mid_h = grid_rows(sizes, grid_w, per)
+        self.draw_grid(y, grid_w, per)
+        x = LABEL_W + grid_w
+        for row in range(y - 1, y + mid_h):
+            self.put(row, x, "|", curses.A_DIM)
+        self.draw_sources(y - 1, x + 2, w - x - 2, mid_h + 1)
+        self.draw_panel(y + mid_h, h - 1 - y - mid_h, w)
         if self.picking:
-            self.draw_picker(5, h - 6, w)
+            self.draw_picker(y, h - 1 - y, w)
         self.scr.move(*cursor)
         self.scr.refresh()
 
-    def draw_query(self, w: int) -> tuple[int, int]:
-        width = w - 3
+    def draw_title(self, w: int) -> int:
+        info = f"k={self.k}  BM25 + Qwen3-0.6B"
+        if len(self.title[0]) + len(info) + 4 > w:  # no room: one-row bar
+            self.put(0, 0, f" RAG against the machine  {info} ".ljust(w),
+                     curses.A_REVERSE)
+            return 1
+        for i, line in enumerate(self.title):
+            self.put(i, 1, line, self.attr[NOW])
+        self.put(2, w - len(info) - 1, info, curses.A_DIM)
+        return len(self.title)
+
+    def draw_query(self, y: int, w: int) -> tuple[int, int]:
+        x = 0
+        self.put(y + 2, x + 2, " Tab ", curses.A_REVERSE)
+        self.put(y + 2, x + 8, "to browse 50 sample questions",
+                 self.attr[SEEN])
+        if not self.query:
+            self.put(y, x, ">", curses.A_BOLD)
+            self.put(y, x + 2, "Type a question about vLLM and press Enter",
+                     self.attr[OFF])
+            return y, x + 2
+        width = w - x - 3
         start = max(0, len(self.query) - 2 * width)  # keep the tail
         attrs = [curses.A_BOLD] * len(self.query)
         for a, b, attr in self.marks:
             attrs[a:b] = [attr] * (b - a)
-        self.put(1, 0, ">", curses.A_BOLD)
+        self.put(y, x, ">", curses.A_BOLD)
         for i in range(start, len(self.query)):
             j = i - start
-            self.put(1 + j // width, 2 + j % width, self.query[i], attrs[i])
+            self.put(y + j // width, x + 2 + j % width, self.query[i],
+                     attrs[i])
         j = min(len(self.query) - start, 2 * width - 1)
-        return 1 + j // width, 2 + j % width
+        return y + j // width, x + 2 + j % width
 
-    def draw_grid(self, y: int, width: int, rows: int) -> None:
+    def draw_grid(self, y: int, width: int, per: int) -> None:
         state = self.state.copy()
         top = [self.chunk_of[(s.file_path, s.first_character_index,
                               s.last_character_index)]
                for s in self.sources]
         if top:
             state[top[self.sel]] = SEL
-        sizes = [len(ix) for _, ix in self.groups]
-        per = 1
-        while grid_rows(sizes, width, per) > rows:
-            per += 1
         scale = "1 dot = 1 chunk" if per == 1 else f"1 dot = {per} chunks"
         self.rule(y - 1, 0, LABEL_W + width,
                   f"retrieval: {len(state)} chunks in "
@@ -306,17 +372,24 @@ class App:
             last = (g, cell + len(text) - 1)
 
     def draw_sources(self, y: int, x: int, width: int, rows: int) -> None:
-        self.rule(y, x, width, "sources (Up/Down)")
+        self.rule(y, x, width, "sources: span, chars, BM25 (Up/Down)")
         rows -= 1
         if not self.sources:
             self.put(y + 1, x, "none yet", curses.A_DIM)
+        # sources first; the words, or the selected source, fill the rest
+        n = min(len(self.sources), rows)
+        if self.show_source and self.sources:
+            self.draw_source(y + 1 + n, x, width, rows - n)
+        else:
+            self.draw_words(y + 1 + n, x, width, rows - n)
+        rows = n
         top = max(0, self.sel - rows + 1)
         for i, s in enumerate(self.sources[top:top + rows], top):
             spec = (f"{os.path.relpath(s.file_path, self.root)}"
                     f" [{s.first_character_index}:"
                     f"{s.last_character_index}]")
             size = (f" {s.last_character_index - s.first_character_index:>4}"
-                    f" chars {self.scores[i]:>6.2f}")
+                    f" {self.scores[i]:>5.1f}")
             room = max(1, width - 3 - len(size))
             if len(spec) > room:  # cut the path's head, keep span + size
                 spec = "…" + spec[-(room - 1):]
@@ -324,28 +397,61 @@ class App:
                      f"{i + 1:>2} {spec.ljust(room)}{size}"[:width],
                      self.attr[SEL if i == self.sel else TOP])
 
-    def draw_panel(self, y: int, rows: int, w: int) -> None:
-        if self.show_source and self.sources:
-            s = self.sources[self.sel]
-            title = f"source {self.sel + 1}: {s.file_path} (^P answer)"
-            try:
-                lines = wrap(read_source(s), w - 1)
-            except OSError as e:
-                lines = [f"Cannot read source: {e}"]
-        else:
-            title = "answer (^P source)"
-            lines = wrap(self.answer or "Press Enter to run the pipeline: "
-                         "retrieve sources, then answer with Qwen3.", w - 1)
-            if self.follow:
-                self.scroll = len(lines)
-        self.scroll = max(0, min(self.scroll, len(lines) - rows + 1))
-        shown = lines[self.scroll:self.scroll + rows - 1]
-        if len(lines) > rows - 1:
-            title += (f" lines {self.scroll + 1}-"
-                      f"{self.scroll + len(shown)} of {len(lines)}")
-        self.rule(y, 0, w, title)
+    def draw_words(self, y: int, x: int, width: int, rows: int) -> None:
+        if not self.words or rows < 3:
+            return
+        self.rule(y + 1, x, width, "chunks containing each word (^P source)")
+        for i, (word, n) in enumerate(self.words[:rows - 2]):
+            count = "stopword, skipped" if n < 0 else f"{n:>6} chunks"
+            self.put(y + 2 + i, x,
+                     f"{word[:width - len(count) - 1]:<{width - len(count)}}"
+                     f"{count}"[:width],
+                     curses.A_DIM if n < 0 else self.attr[SEEN])
+
+    def draw_source(self, y: int, x: int, width: int, rows: int) -> None:
+        if rows < 3:
+            return
+        s = self.sources[self.sel]
+        try:
+            lines = wrap(read_source(s), width)
+        except OSError as e:
+            lines = [f"Cannot read source: {e}"]
+        inner = rows - 2
+        self.src_scroll = max(0, min(self.src_scroll, len(lines) - inner))
+        shown = lines[self.src_scroll:self.src_scroll + inner]
+        self.rule(y + 1, x, width,
+                  f"source {self.sel + 1}, lines {self.src_scroll + 1}-"
+                  f"{self.src_scroll + len(shown)}/{len(lines)} (^P words)")
         for i, line in enumerate(shown):
-            self.put(y + 1 + i, 0, line)
+            self.put(y + 2 + i, x, line[:width])
+
+    def draw_panel(self, y: int, rows: int, w: int) -> None:
+        inner, text_w = rows - 2, w - 4  # inside the box borders
+        attr, text_attr = self.attr[TOP] & ~curses.A_REVERSE, 0
+        title = "Answer"
+        hint = ("Loading Qwen3..." if self.loading else
+                "Qwen3 is reading the sources, the answer starts soon..."
+                if self.worker else "Press Enter to retrieve sources, "
+                "then Qwen3 answers from them.")
+        if not self.answer:
+            text_attr = self.attr[SEEN]
+        lines = wrap(self.answer or hint, text_w)
+        if self.follow:
+            self.scroll = len(lines)
+        self.scroll = max(0, min(self.scroll, len(lines) - inner))
+        shown = lines[self.scroll:self.scroll + inner]
+        if len(lines) > inner:
+            title += (f"  lines {self.scroll + 1}-"
+                      f"{self.scroll + len(shown)} of {len(lines)}")
+        self.put(y, 0, "\u250c" + "\u2500" * (w - 2) + "\u2510", attr)
+        self.put(y, 2, f" {title} "[:w - 4], attr | curses.A_BOLD)
+        for i in range(inner):
+            self.put(y + 1 + i, 0, "\u2502", attr)
+            self.put(y + 1 + i, w - 1, "\u2502", attr)
+        for i, line in enumerate(shown):
+            self.put(y + 1 + i, 2, line, text_attr)
+        self.put(y + rows - 1, 0, "\u2514" + "\u2500" * (w - 2) + "\u2518",
+                 attr)
 
     def draw_picker(self, y: int, rows: int, w: int) -> None:
         self.rule(y, 0, w, "pick a question (Enter run, Esc back)")
@@ -353,7 +459,8 @@ class App:
         top = max(0, self.pick - rows + 1)
         for i in range(rows):
             n = top + i
-            text = f"{n + 1:>2}. {QUESTIONS[n]}" if n < len(QUESTIONS) else ""
+            text = (f"    {n + 1:>2}. {QUESTIONS[n]}" if n < len(QUESTIONS)
+                    else "")
             self.put(y + 1 + i, 0, text[:w - 1].ljust(w - 1),
                      curses.A_REVERSE if n == self.pick else 0)
 
@@ -362,6 +469,7 @@ class App:
         self.query, self.answer, self.show_source = query, "", False
         self.state[:] = OFF
         self.sources, self.scores, self.marks, self.sel = [], [], [], 0
+        self.words = []
         self.scroll, self.follow = 0, True
         if not query:
             self.status = "Empty query"
@@ -369,19 +477,22 @@ class App:
         docs = self.retriever.bm25.doc_freqs  # one term->count per chunk
         for m in WORD_RE.finditer(query):
             terms = tokenize(m.group())
-            if not terms:  # stopword: BM25 ignores it
+            if not terms:  # stopword: BM25 ignores it, so dim it
+                self.marks.append((m.start(), m.end(), curses.A_DIM))
+                self.words.append((m.group(), -1))
                 continue
             self.state[self.state == NOW] = SEEN
             hit = np.fromiter((any(t in d for t in terms) for d in docs),
                               bool, len(docs))
             self.state[hit] = NOW
-            self.marks = [(a, b, self.attr[SEEN]) for a, b, _ in self.marks]
+            self.marks = self.seen_marks()
             self.marks.append((m.start(), m.end(), self.word_attr))
+            self.words.append((m.group(), int(hit.sum())))
             self.status = f"'{m.group()}' is in {int(hit.sum())} chunks"
             self.draw()
             curses.napms(STEP_MS)
         self.state[self.state == NOW] = SEEN
-        self.marks = [(a, b, self.attr[SEEN]) for a, b, _ in self.marks]
+        self.marks = self.seen_marks()
         self.sources = self.retriever.search(query, self.k)
         # ponytail: scores BM25 twice (here + search), ~ms on this corpus
         scores = self.retriever.bm25.get_scores(tokenize(query))
@@ -396,12 +507,21 @@ class App:
                        else "No chunk shares a word with the question")
         return bool(self.sources)
 
+    def seen_marks(self) -> list[tuple[int, int, int]]:
+        # the word being read becomes "seen"; dimmed stopwords stay dim
+        return [(a, b, self.attr[SEEN] if attr == self.word_attr else attr)
+                for a, b, attr in self.marks]
+
     def generate(self) -> None:
         if self.generator is None:
             self.status = "Loading Qwen3 (first time can take a while)..."
+            self.loading = True
             self.draw()
             from src.generator import Generator  # torch import is slow
-            self.generator = Generator()
+            try:
+                self.generator = Generator()
+            finally:
+                self.loading = False
         generator, query, sources = self.generator, self.query, self.sources
         self.error, self.pieces = None, 0
         self.started = time.monotonic()
@@ -460,7 +580,7 @@ class App:
         elif key == "\t" and self.worker is None:
             self.picking = True
         elif key == "\x10":
-            self.show_source, self.scroll = not self.show_source, 0
+            self.show_source, self.src_scroll = not self.show_source, 0
         elif key == "\x0b":
             self.k = KS[(KS.index(self.k) + 1) % len(KS)]
             self.status = f"k = {self.k}, press Enter to run again"
@@ -469,11 +589,13 @@ class App:
         elif key in ("\x7f", "\b", curses.KEY_BACKSPACE):
             self.query, self.marks = self.query[:-1], []
         elif key == curses.KEY_UP and self.sel > 0:
-            self.sel -= 1
-            self.scroll = 0 if self.show_source else self.scroll
+            self.sel, self.src_scroll = self.sel - 1, 0
         elif key == curses.KEY_DOWN and self.sel < len(self.sources) - 1:
-            self.sel += 1
-            self.scroll = 0 if self.show_source else self.scroll
+            self.sel, self.src_scroll = self.sel + 1, 0
+        elif key == curses.KEY_NPAGE and self.show_source:
+            self.src_scroll += 10  # draw_source clamps it
+        elif key == curses.KEY_PPAGE and self.show_source:
+            self.src_scroll = max(0, self.src_scroll - 10)
         elif key == curses.KEY_NPAGE:
             self.scroll += 10  # draw_panel clamps it
         elif key == curses.KEY_PPAGE:
@@ -527,6 +649,10 @@ if __name__ == "__main__":
     chars, level = braille(np.zeros(20, dtype=np.int8), 3)
     assert chars == "\u287f"  # 7 dots of 3 chunks each
     assert grid_rows([800, 8], 10, 1) == 11 and grid_rows([800], 10, 2) == 5
+    assert banner("A ") == ["\u2584\u2580\u2584", "\u2588\u2580\u2588",
+                            "\u2580 \u2580"]
+    assert fit_per([800, 8], 10, 11) == 1 and fit_per([800, 8], 10, 6) == 2
+    assert fit_per([800, 8], 10, 1) == 10  # one row per group at least
     paths = ["r/a/x/f.py"] * 60 + ["r/a/y/f.py"] * 30 + ["r/b/f.py"] * 9 \
         + ["r/c.md"]
     assert [(n, len(ix)) for n, ix in group_chunks(paths, keep=0.05)] == [
