@@ -113,18 +113,17 @@ MIN_H, MIN_W = 20, 80
 # chunk states; the highest one wins when chunks share a braille cell
 OFF, SEEN, NOW, TOP, SEL = 0, 1, 2, 3, 4
 LABEL_W = 20  # group names left of the grid
-GRID_MAX = 80  # grid cells per row; wider only to keep 1 dot = 1 chunk
-SRC_W, SRC_MIN = 56, 40  # sources column: shrinks to fit 1 dot = 1 chunk
-ANSWER_MIN = 6  # rows always left to the answer box, borders included
+GRID_MAX = 82  # grid cells per row; wider only to keep 1 dot = 1 chunk
+SRC_MIN = 40  # sources column never narrower than this
+ANSWER_MIN = 7  # rows always left to the answer box, borders included
 TITLE = "RAG AGAINST THE MACHINE"
-# 5-pixel-high font for the title, drawn two pixel rows per text row
+# 4-pixel-high font for the title: two pixel rows per text row
 FONT = {
-    "A": ".#.|#.#|###|#.#|#.#", "C": ".##|#..|#..|#..|.##",
-    "E": "###|#..|##.|#..|###", "G": ".###|#...|#.##|#..#|.###",
-    "H": "#.#|#.#|###|#.#|#.#", "I": "###|.#.|.#.|.#.|###",
-    "M": "#...#|##.##|#.#.#|#...#|#...#", "N": "#..#|##.#|#.##|#..#|#..#",
-    "R": "##.|#.#|##.|#.#|#.#", "S": ".##|#..|.#.|..#|##.",
-    "T": "###|.#.|.#.|.#.|.#.", " ": "..|..|..|..|..",
+    "A": ".#.|#.#|###|#.#", "C": ".##|#..|#..|.##", "E": "###|##.|#..|###",
+    "G": ".##|#..|#.#|.##", "H": "#.#|###|#.#|#.#", "I": "###|.#.|.#.|###",
+    "M": "#...#|##.##|#.#.#|#...#", "N": "#..#|##.#|#.##|#..#",
+    "R": "##.|#.#|##.|#.#", "S": ".##|##.|..#|##.", "T": "###|.#.|.#.|.#.",
+    " ": "..|..|..|..",
 }
 HALF = {(False, False): " ", (True, False): "\u2580",
         (False, True): "\u2584", (True, True): "\u2588"}
@@ -153,11 +152,10 @@ def braille(state: NDArray[np.int8],
 
 
 def banner(text: str) -> list[str]:
-    rows = [""] * 5
+    rows = [""] * 4
     for ch in text:
         for r, bits in enumerate(FONT[ch].split("|")):
             rows[r] += bits + "."
-    rows.append("." * len(rows[0]))  # pad to an even pixel height
     return ["".join(HALF[(a == "#", b == "#")] for a, b in zip(top, bot))
             .rstrip() for top, bot in zip(rows[::2], rows[1::2])]
 
@@ -276,12 +274,12 @@ class App:
         self.put(top + 4, 0, self.status[:w - 1], curses.A_DIM)
         self.put(h - 1, 0, HELP[:w - 1], curses.A_DIM)
         # grid on the left, sources on its right, answer below both. The
-        # grid is exactly as tall as it needs; it widens past GRID_MAX,
-        # then squeezes the sources, only to keep 1 dot = 1 chunk
+        # grid is exactly as tall as it needs; it widens past GRID_MAX
+        # (squeezing the sources) only to keep 1 dot = 1 chunk
         y = top + 6  # first grid row
         sizes = [len(ix) for _, ix in self.groups]
-        widths = [w - LABEL_W - 1 - src for src in (SRC_W, SRC_MIN)]
-        for grid_w in (min(GRID_MAX, widths[0]), *widths):
+        widest = w - LABEL_W - 1 - SRC_MIN
+        for grid_w in (min(GRID_MAX, widest), widest):
             grid_w = max(24, grid_w)
             per = fit_per(sizes, grid_w, h - y - 1 - ANSWER_MIN)
             if per == 1:
@@ -303,11 +301,11 @@ class App:
         if len(self.title[0]) + len(info) + 4 > w:  # no room: one-row bar
             self.put(0, 0, f" RAG against the machine  {info} ".ljust(w),
                      curses.A_REVERSE)
-            return 1
+            return 2  # title + a blank row
         for i, line in enumerate(self.title):
             self.put(i, 1, line, self.attr[NOW])
-        self.put(2, w - len(info) - 1, info, curses.A_DIM)
-        return len(self.title)
+        self.put(len(self.title) - 1, w - len(info) - 1, info, curses.A_DIM)
+        return len(self.title) + 1  # title + a blank row
 
     def draw_query(self, y: int, w: int) -> tuple[int, int]:
         x = 0
@@ -508,8 +506,9 @@ class App:
         return bool(self.sources)
 
     def seen_marks(self) -> list[tuple[int, int, int]]:
-        # the word being read becomes "seen"; dimmed stopwords stay dim
-        return [(a, b, self.attr[SEEN] if attr == self.word_attr else attr)
+        # a read word stays yellow, minus the reverse of the current one;
+        # dimmed stopwords stay dim
+        return [(a, b, self.attr[NOW] if attr == self.word_attr else attr)
                 for a, b, attr in self.marks]
 
     def generate(self) -> None:
@@ -649,8 +648,7 @@ if __name__ == "__main__":
     chars, level = braille(np.zeros(20, dtype=np.int8), 3)
     assert chars == "\u287f"  # 7 dots of 3 chunks each
     assert grid_rows([800, 8], 10, 1) == 11 and grid_rows([800], 10, 2) == 5
-    assert banner("A ") == ["\u2584\u2580\u2584", "\u2588\u2580\u2588",
-                            "\u2580 \u2580"]
+    assert banner("A ") == ["\u2584\u2580\u2584", "\u2588\u2580\u2588"]
     assert fit_per([800, 8], 10, 11) == 1 and fit_per([800, 8], 10, 6) == 2
     assert fit_per([800, 8], 10, 1) == 10  # one row per group at least
     paths = ["r/a/x/f.py"] * 60 + ["r/a/y/f.py"] * 30 + ["r/b/f.py"] * 9 \
