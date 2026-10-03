@@ -10,6 +10,7 @@ dependencies = [
     "rank-bm25>=0.2",
     "transformers>=5.17.0",
     "torch>=2.14.0",
+    "numpy>=2.2.6",
 ]
 
 [project.optional-dependencies]

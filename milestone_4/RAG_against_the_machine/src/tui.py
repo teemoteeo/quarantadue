@@ -1,3 +1,10 @@
+"""Interfaccia interattiva (`tui`, extra fuori subject) in `curses`.
+
+Mostra la pipeline mentre lavora: ogni parola della domanda accende i
+chunk che la contengono (una griglia braille, un punto per chunk), BM25
+sceglie i top k, Qwen3 scrive la risposta in streaming.
+"""
+
 import curses
 import os
 import sys
@@ -132,6 +139,7 @@ DOT_BITS = np.array([0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80])
 
 
 def wrap(text: str, width: int) -> list[str]:
+    """Va a capo a `width` tenendo righe vuote e indentazione."""
     lines: list[str] = []
     for line in text.expandtabs(4).splitlines():
         lines += textwrap.wrap(line, width, replace_whitespace=False,
@@ -141,6 +149,10 @@ def wrap(text: str, width: int) -> list[str]:
 
 def braille(state: NDArray[np.int8],
             per: int) -> tuple[str, NDArray[np.int8]]:
+    """Stati dei chunk -> caratteri braille (8 punti, `per` chunk a punto).
+
+    Restituisce anche lo stato più alto di ogni carattere, per il colore.
+    """
     dots = np.maximum.reduceat(state, np.arange(0, len(state), per))
     cells = np.full(-(-len(dots) // 8) * 8, -1, dtype=np.int8)
     cells[:len(dots)] = dots
@@ -152,6 +164,7 @@ def braille(state: NDArray[np.int8],
 
 
 def banner(text: str) -> list[str]:
+    """`text` in `FONT`, due righe di pixel per riga di testo (▀ ▄ █)."""
     rows = [""] * 4
     for ch in text:
         for r, bits in enumerate(FONT[ch].split("|")):
@@ -161,6 +174,7 @@ def banner(text: str) -> list[str]:
 
 
 def grid_rows(sizes: list[int], width: int, per: int) -> int:
+    """Righe occupate dalla griglia: ogni gruppo parte su una riga nuova."""
     def ceil(a: int, b: int) -> int:
         return -(-a // b)
 
@@ -168,6 +182,7 @@ def grid_rows(sizes: list[int], width: int, per: int) -> int:
 
 
 def fit_per(sizes: list[int], width: int, rows: int) -> int:
+    """Il minimo di chunk per punto che fa stare la griglia in `rows`."""
     per = 1
     # each group needs a row whatever per is: stop there on tiny screens
     while grid_rows(sizes, width, per) > max(rows, len(sizes)):
@@ -177,6 +192,11 @@ def fit_per(sizes: list[int], width: int, rows: int) -> int:
 
 def group_chunks(paths: list[str], split: float = 0.25,
                  keep: float = 0.02) -> list[tuple[str, NDArray[np.intp]]]:
+    """Raggruppa i chunk per cartella, per le righe della griglia.
+
+    Una cartella con più di `split` dei chunk si divide nelle sue
+    sottocartelle; i gruppi sotto `keep` finiscono in "other".
+    """
     dirs = [os.path.dirname(p) for p in paths]
     root = os.path.commonpath(dirs)
     parts = [os.path.relpath(d, root).split(os.sep) for d in dirs]
@@ -195,6 +215,7 @@ def group_chunks(paths: list[str], split: float = 0.25,
 
 
 class App:
+    """Stato della TUI, disegno e tasti. Un'istanza per sessione."""
 
     def __init__(self, scr: "curses.window", retriever: Retriever) -> None:
         self.scr = scr
@@ -621,6 +642,7 @@ class App:
 
 
 def run_tui(processed_dir: str) -> None:
+    """Carica l'indice e avvia `App` in curses, con stderr silenziato."""
     retriever = Retriever(processed_dir)  # fail before touching the tty
 
     def main(scr: "curses.window") -> None:

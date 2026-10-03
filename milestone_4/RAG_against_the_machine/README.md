@@ -17,11 +17,12 @@ question ──► tokenize ──► BM25 scores ──► top-k MinimalSource 
 
 | File | Role |
 |------|------|
-| `src/indexer.py` | Finds every `.py` / `.md` / `.txt` file under `data/raw/`, reads it byte-exact, cuts it with one of the two chunking strategies (below) |
+| `src/indexer.py` | Finds every `.py` / `.md` / `.txt` file under `data/raw/`, reads it with exact character offsets, cuts it with one of the two chunking strategies (below) |
 | `src/retriever.py` | Tokenizer, index build + pickle, `Retriever.search()` |
 | `src/generator.py` | Prompt building and generation with Qwen3-0.6B (`transformers`, CPU) |
 | `src/models.py` | Pydantic models exchanged between stages and written as JSON |
 | `src/__main__.py` | Python Fire CLI, recall@k evaluation, top-level error handling |
+| `src/tui.py` | Interactive curses interface (extra, not in the subject): shows which chunks each question word hits, the top-k sources and the streamed answer |
 
 The index stores only `(file_path, first, last)` per chunk plus the BM25 statistics. Chunk text is re-read from disk when the generator needs it, so the index stays small (16 MB); re-run `index` if the corpus changes.
 
@@ -64,7 +65,7 @@ Measured on the public datasets with this repo's `evaluate` command (same rule a
 | 500  | 69,996 | 82.0% | 75.8% |
 | 1000 | 28,111 | 85.0% | 78.8% |
 | 1500 | 18,408 | 85.0% | 80.8% |
-| 2000 | 13,887 | **86.0%** | **82.8%** |
+| 2000 | 13,885 | **86.0%** | **82.8%** |
 
 Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins on both sets.
 
@@ -82,7 +83,7 @@ Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins
 
 | Step | Time | Limit |
 |------|------|-------|
-| `index` (1,969 files → 13,887 chunks) | ~5 s | 5 min |
+| `index` (1,969 files → 13,885 chunks) | ~5 s | 5 min |
 | `search_dataset`, docs (100 q) + code (99 q), cold start each | 3.0 s + 3.9 s | 90 s |
 | `answer_dataset`, first 10 docs questions, k=10 results | 4 min 41 s (~28 s/question, model load excluded), context capped at 12,000 chars | — |
 
@@ -115,6 +116,7 @@ make lint-strict  # flake8 + mypy --strict
 make clean        # remove caches
 make run CMD='search "How do I load a LoRA adapter?" --k 5'
 make debug CMD='index'   # same, under pdb
+make tui                 # interactive interface (needs the index)
 ```
 
 Expected layout: corpus in `data/raw/vllm-0.10.1/`, datasets in `data/datasets/{AnsweredQuestions,UnansweredQuestions}/`.
