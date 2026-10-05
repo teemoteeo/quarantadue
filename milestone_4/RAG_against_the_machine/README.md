@@ -18,13 +18,15 @@ question ──► tokenize ──► BM25 scores ──► top-k MinimalSource 
 | File | Role |
 |------|------|
 | `src/indexer.py` | Finds every `.py` / `.md` / `.txt` file under `data/raw/`, reads it with exact character offsets, cuts it with one of the two chunking strategies (below) |
-| `src/retriever.py` | Tokenizer, index build + pickle, `Retriever.search()` |
+| `src/retriever.py` | Tokenizer, index build + pickle (full or incremental), `Retriever.search()` in bm25 / embeddings / hybrid mode, query cache |
+| `src/embedder.py` | all-MiniLM-L6-v2 sentence embeddings for the vector index (bonus) |
 | `src/generator.py` | Prompt building and generation with Qwen3-0.6B (`transformers`, CPU) |
 | `src/models.py` | Pydantic models exchanged between stages and written as JSON |
 | `src/__main__.py` | Python Fire CLI, recall@k evaluation, top-level error handling |
+| `src/api.py` | Local HTTP API (`/healthz`, `/search`, `/answer`) on the stdlib `http.server` (bonus) |
 | `src/tui.py` | Interactive curses interface (extra, not in the subject): shows which chunks each question word hits, the top-k sources and the streamed answer |
 
-The index stores only `(file_path, first, last)` per chunk plus the BM25 statistics. Chunk text is re-read from disk when the generator needs it, so the index stays small (16 MB); re-run `index` if the corpus changes.
+The index stores `(file_path, first, last)` per chunk, the BM25 statistics, and each chunk's terms plus each file's `(mtime, size)`; the last two let `index --incremental` skip unchanged files. Chunk text is re-read from disk when the generator needs it. Measured sizes at `--max_chunk_size 2000`: `index.pkl` 39.0 MB, `embeddings.pkl` 21.3 MB (only with `--embeddings`). If the corpus changes, re-run `index`, or `index --incremental` to re-chunk only the changed files.
 
 ## Chunking Strategy
 
@@ -86,6 +88,54 @@ Smaller chunks split answers across chunks and dilute BM25 statistics; 2000 wins
 | `index` (1,969 files → 13,885 chunks) | ~5 s | 5 min |
 | `search_dataset`, docs (100 q) + code (99 q), cold start each | 3.0 s + 3.9 s | 90 s |
 | `answer_dataset`, first 10 docs questions, k=10 results | 4 min 41 s (~28 s/question, model load excluded), context capped at 12,000 chars | — |
+
+Bonus timings, measured on a different machine (Apple M5 Pro laptop, CPU only), so not comparable with the campus table above:
+
+| Step | Time | Limit |
+|------|------|-------|
+| `index` (BM25 only) | 2.6 s | 5 min |
+| `index --embeddings` (BM25 + 13,885 MiniLM vectors) | 19.5 s / 20.6 s (two runs) | 5 min |
+| `index --embeddings --incremental`, 1 file touched (1 re-indexed, 1,846 reused) | 5.1 s | — |
+| `search_dataset`, docs + code, `--no_cache` | 1.6 s + 2.1 s | 90 s |
+| `search_dataset`, docs + code, same questions again (query cache hit) | 0.10 s + 0.10 s | 90 s |
+| `search` one query, bm25: 1st run / 2nd run (separate processes) | 0.31 s / 0.10 s | — |
+| `search` one query, `--retrieval hybrid`: 1st run / 2nd run | 2.73 s / 0.10 s | — |
+
+## Bonus Features
+
+Each bonus is opt-in: without its flag, the default `bm25` search returns exactly the results of the mandatory version (checked by diffing `search_dataset` outputs).
+
+| # | Bonus | What it is | Demo |
+|---|-------|------------|------|
+| 1 | Semantic embeddings | `all-MiniLM-L6-v2` (CPU) vectors for every chunk, saved as `data/processed/embeddings.pkl` next to the BM25 index; cosine similarity search | `uv run python -m src index --embeddings` then `uv run python -m src search "How do I load a LoRA adapter?" --retrieval embeddings` |
+| 2 | Hybrid retrieval | BM25 and embedding rankings fused with weighted Reciprocal Rank Fusion (BM25 weight 2, `LEXICAL_WEIGHT`) | `uv run python -m src search "How do I load a LoRA adapter?" --retrieval hybrid` (also on `search_dataset` and `answer`) |
+| 3 | Incremental indexing | Files with unchanged `(mtime, size)` reuse their chunks, terms and vectors; only new or changed files are re-chunked and re-embedded. The result equals a full rebuild (same sources, terms and embedding matrix) | `touch data/raw/vllm-0.10.1/docs/features/lora.md && uv run python -m src index --embeddings --incremental` → `Incremental: re-indexed 1 file(s), reused 1846` |
+| 4 | Caching | The index is built once and persisted (`index.pkl`), loaded only on a cache miss; query results are cached in memory and on disk in `data/processed/query_cache.json`, keyed by mode, whitespace-normalised query and k, and tied to the `(mtime, size)` of the index files, so any re-index invalidates it. Atomic writes, at most 1000 entries, a corrupt file is ignored | Run the same `search` twice (2nd run: 0.10 s, see Speed); `--no_cache` bypasses it on `search`, `search_dataset`, `answer` and `api` |
+| 5 | Local HTTP API | `uv run python -m src api [--port 8000] [--retrieval hybrid]`: `GET /healthz`, `POST /search`, `POST /answer`; bodies are the subject's pydantic models, bad input gets a 4xx JSON error | see below |
+
+```bash
+uv run python -m src api --port 8000
+curl -s localhost:8000/healthz
+# {"status": "ok"}
+curl -s -X POST localhost:8000/search -d '{"question": "How do I load a LoRA adapter?", "k": 2}'
+# {"search_results": [{"question_id": "<uuid>", "question": "...", "retrieved_sources": [{"file_path": "data/raw/vllm-0.10.1/docs/features/lora.md", "first_character_index": 4695, "last_character_index": 6100}, ...]}], "k": 2}
+curl -s -X POST localhost:8000/answer -d '{"question": "What HTTP endpoint loads a LoRA adapter?", "k": 3}'
+# {..., "answer": "The HTTP endpoint that loads a LoRA adapter is `/v1/load_lora_adapter`."}
+```
+
+**Trade-offs (measured with `evaluate`, `--max_chunk_size 2000`):**
+
+| Mode | docs @1 / @3 / @5 / @10 | code @1 / @3 / @5 / @10 |
+|------|-------------------------|-------------------------|
+| `bm25` (default) | 66.0 / 82.0 / **86.0** / 89.0 | 49.5 / 73.7 / **82.8** / 87.9 |
+| `embeddings` | 37.0 / 55.0 / 60.0 / 67.0 | 18.2 / 30.3 / 32.3 / 39.4 |
+| `hybrid`, equal weights | 54.0 / 76.0 / 82.0 / 91.0 | 35.4 / 61.6 / 72.7 / 85.9 |
+| `hybrid`, BM25 weight 2 (shipped) | 59.0 / 80.0 / **87.0** / 90.0 | 33.3 / 63.6 / **78.8** / 88.9 |
+
+- BM25 stays the default: hybrid gains 1 point on docs @5 and on code @10 but loses 4 points on code @5 and a lot at @1. Equal-weight RRF was worse at @5 on both sets.
+- The weight was chosen among 1, 2 and 3 on the same public questions reported here, so the hybrid row is optimistic. 2 and 3 give identical results: with any BM25 weight above 75/61, every chunk in BM25's top 15 outranks every chunk found only by embeddings, so the semantic ranking just reorders BM25's candidates. That is a structural effect, not a fine-tuned value.
+- `EMBED_CHARS = 500`: only the first 500 characters of a chunk are embedded, which truncates 12,818 of the 13,885 chunks. On a sample of 278 chunks, a 500-char prefix is 146 tokens (median, max 228), under MiniLM's 256-token limit, so a longer prefix is possible but untested. The truncation likely explains part of the low embedding-only recall.
+- The query cache is tied to the index files and to `src/retriever.py` itself (mtime, size), not to the corpus: after editing `data/raw/`, re-run `index` before trusting cached results (it is invalidated as soon as the index is rewritten).
 
 ## Design Decisions
 
@@ -154,7 +204,7 @@ uv run python -m src answer_dataset \
     --save_directory data/output/search_results_and_answer/UnansweredQuestions
 ```
 
-Optional flags: `--processed_dir` (index location: `index`, `search`, `search_dataset`, `answer`) and `--raw_dir` (corpus: `index`).
+Optional flags: `--processed_dir` (index location: `index`, `search`, `search_dataset`, `answer`, `api`), `--raw_dir` (corpus: `index`), and for the bonuses `--embeddings` / `--incremental` (`index`), `--retrieval bm25|hybrid|embeddings` and `--no_cache` (`search`, `search_dataset`, `answer`, `api`).
 
 ## Resources
 
@@ -168,4 +218,4 @@ Optional flags: `--processed_dir` (index location: `index`, `search`, `search_da
 
 ### AI usage
 
-Claude Code was used to audit the code against the subject, to write the retriever, generator and CLI, and to run the measurements reported above (chunk-size sweep, tokenizer ablations, float32 vs bfloat16 timing). The chunking design was developed with AI assistance as well.
+Claude Code was used to audit the code against the subject, to write the retriever, generator, CLI and the bonus features, and to run the measurements reported above (chunk-size sweep, tokenizer ablations, float32 vs bfloat16 timing). The chunking design was developed with AI assistance as well.

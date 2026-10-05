@@ -37,3 +37,7 @@ data/datasets/
 
 # uv / HuggingFace caches (see Makefile)
 .cache/
+
+# scratch: source dumps and study notes
+files/
+RAG against the machine_ traccia di studio.html
