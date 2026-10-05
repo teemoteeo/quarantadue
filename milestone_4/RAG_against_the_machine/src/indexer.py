@@ -29,10 +29,6 @@ class Chunk:
     first_character_index: int
     last_character_index: int
 
-    def bounds(self) -> list[int]:
-        """(inizio, fine): per il confronto dell'indice incrementale."""
-        return [self.first_character_index, self.last_character_index]
-
 
 def read_file_text(path: str) -> str:
     """Legge un file del corpus; stessi criteri di `walk` (i ``\r\n``

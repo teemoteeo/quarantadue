@@ -14,10 +14,11 @@ volante è lo stesso dei file. `Qwen3` si carica pigro alla prima `/answer`.
 
 import json
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from tqdm import tqdm
 
 from src.models import (
@@ -25,6 +26,10 @@ from src.models import (
     StudentSearchResultsAndAnswer,
 )
 from src.retriever import RETRIEVAL_CHOICES, RETRIEVAL_MODES, Retriever
+
+# a question is a few hundred bytes: refuse a body that would only tie up
+# a thread reading it
+MAX_BODY = 1_000_000
 
 
 class ApiRequest(BaseModel):
@@ -39,7 +44,7 @@ class Api:
     """Stato condiviso del server: indice una volta, modello al bisogno."""
 
     def __init__(self, processed_dir: str,
-                 retrieval: str = "bm25") -> None:
+                 retrieval: str = "bm25", *, cache: bool = True) -> None:
         """Carica l'indice; il generatore resta pigro (torch è lento).
 
         Raises:
@@ -49,7 +54,8 @@ class Api:
         if retrieval not in RETRIEVAL_MODES:
             raise ValueError(f"retrieval must be one of "
                              f"{RETRIEVAL_CHOICES}, got {retrieval!r}")
-        self.retriever = Retriever(processed_dir, retrieval=retrieval)
+        self.retriever = Retriever(processed_dir, retrieval=retrieval,
+                                   cache=cache)
         self.retrieval = retrieval
         self._generator: Any | None = None
         self._generator_lock = threading.Lock()
@@ -77,9 +83,11 @@ class Api:
             return 404, {"error": "unknown endpoint; use /search or /answer"}
         try:
             payload = ApiRequest.model_validate_json(body)
-        except Exception as e:
-            message = str(e).splitlines()[0] if str(e) else "empty body"
-            return 400, {"error": f"invalid request body: {message}"}
+        except ValidationError as e:
+            first = e.errors()[0]
+            where = ".".join(str(p) for p in first["loc"])
+            return 400, {"error": "invalid request body: "
+                         + (f"{where}: " if where else "") + first["msg"]}
         question = payload.question.strip()
         if not question:
             return 400, {"error": "question must not be empty"}
@@ -94,10 +102,12 @@ class Api:
         try:
             sources = self.retriever.search(
                 question, payload.k, retrieval=payload.retrieval)
+            self.retriever.save_cache()
         except Exception as e:  # the API must not crash the server
             return 500, {"error": f"{type(e).__name__}: {e}"}
+        question_id = str(uuid.uuid4())
         results = [MinimalSearchResults(
-            question_id="api", question=question,
+            question_id=question_id, question=question,
             retrieved_sources=sources)]
         if path == "/search":
             return 200, StudentSearchResults(
@@ -107,7 +117,7 @@ class Api:
         except Exception as e:
             return 500, {"error": f"{type(e).__name__}: {e}"}
         return 200, StudentSearchResultsAndAnswer(search_results=[
-            MinimalAnswer(question_id="api", question=question,
+            MinimalAnswer(question_id=question_id, question=question,
                           retrieved_sources=sources, answer=answer)],
             k=payload.k).model_dump()
 
@@ -137,9 +147,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(status, payload)
 
     def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length) if length > 0 else b""
         try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._reply(400, {"error": "invalid Content-Length header"})
+            return
+        if length > MAX_BODY:
+            self._reply(413, {"error": f"body larger than {MAX_BODY} bytes"})
+            return
+        try:
+            body = self.rfile.read(length)
             status, payload = self.api.handle(self.path.split("?")[0], body)
         except Exception as e:
             status, payload = 500, {"error": f"{type(e).__name__}: {e}"}

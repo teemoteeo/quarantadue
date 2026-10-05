@@ -9,8 +9,12 @@ Senza il flag e senza `embeddings.pkl` il comportamento è quello
 originale, bit per bit: la moulinette non deve mai vedere un cambio.
 """
 
+import hashlib
+import json
+import os
 import pickle
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +28,9 @@ from src.models import MinimalSource
 
 INDEX_FILE = "index.pkl"
 EMBEDDINGS_FILE = "embeddings.pkl"
+QUERY_CACHE_FILE = "query_cache.json"
+# ponytail: oldest-first eviction, not LRU; fine for a local query cache
+QUERY_CACHE_MAX = 1000
 RETRIEVAL_MODES = ("bm25", "hybrid", "embeddings")
 RETRIEVAL_CHOICES = "/".join(RETRIEVAL_MODES)
 WORD_RE = re.compile(r"[A-Za-z0-9_]+")
@@ -39,6 +46,11 @@ STOPWORDS = frozenset(
 RRF_K = 60
 # min per-variant list size for the hybrid fusion (grows with k)
 FUSION_K = 15
+# BM25's weight in the fusion (the semantic list weighs 1): BM25 alone is
+# the stronger ranker here, equal weights lose recall@5 (README). Any
+# weight > 75/61 makes the semantic list only reorder BM25's top
+# FUSION_K and fill in after it; 2 and 3 score the same.
+LEXICAL_WEIGHT = 2.0
 
 
 def tokenize(text: str, part_identifiers: bool = True) -> list[str]:
@@ -150,6 +162,8 @@ def build_index(
         pickle.dump(index, f)
     if embeddings:
         _save_embeddings(processed_dir, previous, chunks, changed)
+    else:  # its rows would no longer match the chunks just written
+        (Path(processed_dir) / EMBEDDINGS_FILE).unlink(missing_ok=True)
     return len(chunks)
 
 
@@ -260,6 +274,26 @@ def _save_embeddings(
         pickle.dump(matrix.astype(np.float32), f)
 
 
+def _index_identity(processed_dir: str) -> str:
+    """Firma della cache su disco: (mtime_ns, size) di `index.pkl`,
+    `embeddings.pkl` e di questo modulo (bonus 4).
+
+    Un `index` (anche incrementale) o una modifica al codice di ricerca
+    cambiano la firma, e la cache vecchia si butta: mai risultati stantii.
+    `max_chunk_size` è dentro `index.pkl`, quindi già nella firma.
+    """
+    parts: list[str] = []
+    for path in (Path(processed_dir) / INDEX_FILE,
+                 Path(processed_dir) / EMBEDDINGS_FILE, Path(__file__)):
+        try:
+            stat = path.stat()
+        except OSError:
+            parts.append("-")
+            continue
+        parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
+    return "|".join(parts)
+
+
 def read_source(source: MinimalSource) -> str:
     """Rilegge dal disco il testo `file[first:last]` di una fonte.
 
@@ -279,18 +313,21 @@ class Retriever:
         retrieval: modalità di ricerca di default (`bm25`).
         _embeddings: matrice (n_chunk, 384) di vettori normalizzati,
             caricata a prima ricerca che ne ha bisogno.
-        _cache: (modalità, domanda, k) -> indici; le query ripetute nello
-            stesso processo non ricomputano (bonus 4).
+        _cache: hash(modalità|domanda|k) -> fonti; le query ripetute non
+            ricomputano, nemmeno fra un processo e l'altro: `save_cache`
+            la scrive in `query_cache.json` (bonus 4).
     """
 
     def __init__(self, processed_dir: str,
                  retrieval: str = "bm25", *, cache: bool = True) -> None:
-        """Carica `index.pkl` (e, a uso, `embeddings.pkl`).
+        """Prepara la ricerca; `index.pkl` si carica alla prima domanda
+        non in cache (e `embeddings.pkl` solo se serve).
 
         Args:
             processed_dir: Cartella dell'indice.
             retrieval: `bm25` (default), `hybrid` o `embeddings`.
-            cache: Abilita la cache in memoria dei risultati (bonus 4).
+            cache: Abilita la cache dei risultati, in memoria e su disco
+                (bonus 4).
 
         Raises:
             ValueError: Indice assente; il messaggio dice di lanciare
@@ -302,18 +339,74 @@ class Retriever:
         path = Path(processed_dir) / INDEX_FILE
         if not path.is_file():
             raise ValueError(f"no index at {path}, run `index` first")
-        # ponytail: pickle trusts the file; fine, only `index` writes it
-        with open(path, "rb") as f:
-            index: dict[str, Any] = pickle.load(f)
-        self.sources: list[tuple[str, int, int]] = index["sources"]
-        self.bm25: BM25Okapi = index["bm25"]
         self.retrieval = retrieval
-        self._cache_enabled = cache
-        self._cache: dict[tuple[str, str, int], list[int]] = {}
         self._processed_dir = processed_dir
+        self._index: dict[str, Any] | None = None
+        self._cache_enabled = cache
+        self._cache_path = Path(processed_dir) / QUERY_CACHE_FILE
+        self._identity = _index_identity(processed_dir)
+        self._cache: dict[str, Any] = self._read_cache() if cache else {}
+        self._cache_dirty = False
+        self._lock = threading.Lock()  # the API searches from many threads
         self._embeddings: np.ndarray | None = None
         self._embeddings_loaded = False
         self._embedder: Embedder | None = None
+
+    def _load_index(self) -> dict[str, Any]:
+        """Carica `index.pkl` una volta, alla prima ricerca vera."""
+        if self._index is None:
+            # ponytail: pickle trusts the file; fine, only `index` writes it
+            with open(Path(self._processed_dir) / INDEX_FILE, "rb") as f:
+                self._index = pickle.load(f)
+        return self._index
+
+    @property
+    def sources(self) -> list[tuple[str, int, int]]:
+        """(percorso, inizio, fine) per chunk (vedi la classe)."""
+        sources: list[tuple[str, int, int]] = self._load_index()["sources"]
+        return sources
+
+    @property
+    def bm25(self) -> BM25Okapi:
+        """Il modello BM25."""
+        return self._load_index()["bm25"]
+
+    def _read_cache(self) -> dict[str, Any]:
+        """Legge `query_cache.json`; assente, illeggibile o di un altro
+        indice (firma diversa) -> cache vuota, mai un crash."""
+        try:
+            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            if data["identity"] == self._identity \
+                    and isinstance(data["results"], dict):
+                return dict(data["results"])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return {}
+
+    def save_cache(self) -> None:
+        """Scrive la cache in `query_cache.json` se ha risultati nuovi.
+
+        La chiamano i comandi CLI e l'API dopo le ricerche: un dataset
+        intero è una sola scrittura. Atomica (file temporaneo + rename):
+        un processo concorrente legge il file vecchio o il nuovo, mai uno
+        a metà. Tiene le ultime `QUERY_CACHE_MAX` voci. Un errore di
+        scrittura (cartella in sola lettura) è solo un avviso.
+        """
+        if not self._cache_dirty:
+            return
+        with self._lock:
+            self._cache = dict(list(self._cache.items())[-QUERY_CACHE_MAX:])
+            self._cache_dirty = False
+            tmp = self._cache_path.with_name(
+                f"{QUERY_CACHE_FILE}.{os.getpid()}.tmp")
+            try:
+                tmp.write_text(json.dumps({"identity": self._identity,
+                                           "results": self._cache}),
+                               encoding="utf-8")
+                os.replace(tmp, self._cache_path)
+            except OSError as e:
+                tqdm.write(f"query cache not saved: {e}")
+                tmp.unlink(missing_ok=True)
 
     def _load_embed_matrix(self) -> np.ndarray | None:
         """Carica `embeddings.pkl` una volta; None se non esiste (o non
@@ -357,18 +450,18 @@ class Retriever:
         return [int(i) for i in np.argsort(-(matrix @ vector))[:k]]
 
     @staticmethod
-    def _fuse(rankings: list[list[int]]) -> list[int]:
-        """Fusione RRF di più classifiche: score = Σ 1/(RRF_K + rank).
+    def _fuse(rankings: list[list[int]], weights: list[float]) -> list[int]:
+        """Fusione RRF pesata: score = Σ w/(RRF_K + rank).
 
         I punteggi BM25 e i coseni non sono mai sulla stessa scala, ma il
         rango sì: RRF (k=60, Robertson) rende la fusione immune ai
         problemi di scala. Rank 0-based: la prima posizione vale
-        1/(RRF_K+1).
+        w/(RRF_K+1). Un peso per classifica (`LEXICAL_WEIGHT` per BM25).
         """
         scores: dict[int, float] = {}
-        for ranking in rankings:
+        for ranking, w in zip(rankings, weights):
             for rank, i in enumerate(ranking):
-                scores[i] = scores.get(i, 0.0) + 1.0 / (RRF_K + rank + 1)
+                scores[i] = scores.get(i, 0.0) + w / (RRF_K + rank + 1)
         return sorted(scores, key=lambda i: scores[i], reverse=True)
 
     def search(self, query: str, k: int,
@@ -381,7 +474,8 @@ class Retriever:
         - `embeddings`: top-k per similarità coseno; senza
           `embeddings.pkl` cade su `bm25` con un avviso, mai un crash.
         - `hybrid`: RRF sulle due classifiche (stessa caduta).
-        I risultati passano per la cache in memoria (bonus 4).
+        I risultati passano per la cache (bonus 4); la chiave ignora gli
+        spazi in più (`"a  b "` == `"a b"`), come già BM25.
 
         Returns:
             Fino a k fonti, la migliore per prima.
@@ -395,10 +489,15 @@ class Retriever:
                 f"retrieval must be one of {RETRIEVAL_CHOICES}, got {mode!r}")
         if k < 1:
             raise ValueError(f"k must be >= 1, got {k}")
-        key = (mode, query, k)
-        cached = self._cache.get(key) if self._cache_enabled else None
-        if cached is not None:
-            return self._to_sources(cached)
+        query = " ".join(query.split())
+        key = hashlib.sha256(f"{mode}|{query}|{k}".encode()).hexdigest()
+        if self._cache_enabled:
+            try:
+                return [MinimalSource(file_path=p, first_character_index=a,
+                                      last_character_index=b)
+                        for p, a, b in self._cache[key]]
+            except (KeyError, ValueError, TypeError):
+                pass  # miss, or an entry mangled on disk: recompute
         n = max(k, FUSION_K)
         semantic = [] if mode == "bm25" else self._embedding_ranking(query, n)
         if not semantic:
@@ -409,11 +508,14 @@ class Retriever:
         elif mode == "embeddings":
             indices = semantic[:k]
         else:
-            indices = self._fuse(
-                [self._bm25_ranking(query, n), semantic])[:k]
+            indices = self._fuse([self._bm25_ranking(query, n), semantic],
+                                 [LEXICAL_WEIGHT, 1.0])[:k]
+        sources = self._to_sources(indices)
         if self._cache_enabled:
-            self._cache[key] = indices
-        return self._to_sources(indices)
+            with self._lock:
+                self._cache[key] = [self.sources[i] for i in indices]
+                self._cache_dirty = True
+        return sources
 
     def _to_sources(self, indices: list[int]) -> list[MinimalSource]:
         """Indici dei chunk -> fonti (stesso ordine)."""

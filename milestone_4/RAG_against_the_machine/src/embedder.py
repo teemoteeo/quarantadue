@@ -7,12 +7,12 @@ different words.
 """
 
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
-# ponytail: 500 chars ~= 300 tokens < the 512 limit, and a chunk beyond that
-# is already mostly its neighbours' business (overlap windows).
+# ponytail: only a chunk's first 500 chars are embedded (~150 tokens, the
+# model reads 256 at most); a longer prefix is untested headroom.
 EMBED_CHARS = 500
 
 
@@ -22,8 +22,14 @@ class Embedder:
     MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
     def __init__(self) -> None:
-        """Carica il modello (~90 MB, scaricati al primo uso)."""
-        self.model = SentenceTransformer(self.MODEL_NAME)
+        """Carica il modello (~90 MB, scaricati al primo uso).
+
+        Import qui e non in cima: porta `torch` (~2 s), e `search` in
+        bm25 importa questo modulo senza mai creare un `Embedder`.
+        """
+        from sentence_transformers import SentenceTransformer
+
+        self.model: Any = SentenceTransformer(self.MODEL_NAME)
 
     def encode(
         self, texts: Sequence[str], *, show_progress_bar: bool = False

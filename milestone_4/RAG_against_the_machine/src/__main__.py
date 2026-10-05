@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import fire
+from pydantic import ValidationError
 from tqdm import tqdm
 
 from src.models import (
@@ -93,6 +94,7 @@ def index(max_chunk_size: int = 2000, *, embeddings: bool = False,
 
 
 def search(query: str, k: int = 5, *, retrieval: str = "bm25",
+           no_cache: bool = False,
            processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `search`: stampa le k fonti migliori per una domanda.
 
@@ -100,15 +102,18 @@ def search(query: str, k: int = 5, *, retrieval: str = "bm25",
         query: La domanda.
         k: Fonti da stampare.
         retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
+        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
         processed_dir: Dove si trova l'indice.
     """
     text, k, retrieval = _query(query), _positive(k), _retrieval(retrieval)
-    _print_sources(Retriever(processed_dir, retrieval=retrieval)
-                   .search(text, k))
+    retriever = Retriever(processed_dir, retrieval=retrieval,
+                          cache=not no_cache)
+    _print_sources(retriever.search(text, k))
+    retriever.save_cache()
 
 
 def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
-                   retrieval: str = "bm25",
+                   retrieval: str = "bm25", no_cache: bool = False,
                    processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `search_dataset`: cerca le fonti di ogni domanda.
 
@@ -120,23 +125,27 @@ def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
         save_directory: Cartella di uscita.
         k: Fonti per domanda.
         retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
+        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
         processed_dir: Dove si trova l'indice.
     """
     k, retrieval = _positive(k), _retrieval(retrieval)
     dataset = RagDataset.model_validate_json(
         Path(dataset_path).read_text(encoding="utf-8"))
-    retriever = Retriever(processed_dir, retrieval=retrieval)
+    retriever = Retriever(processed_dir, retrieval=retrieval,
+                          cache=not no_cache)
     results = StudentSearchResults(k=k, search_results=[
         MinimalSearchResults(
             question_id=q.question_id, question=q.question,
             retrieved_sources=retriever.search(q.question, k))
         for q in tqdm(dataset.rag_questions, desc="Searching", unit="q")
     ])
+    retriever.save_cache()
     out = _save(results, save_directory, Path(dataset_path).name)
     print(f"Saved student_search_results to {out}")
 
 
 def answer(query: str, k: int = 5, *, retrieval: str = "bm25",
+           no_cache: bool = False,
            processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `answer`: tutta la pipeline RAG su una domanda.
 
@@ -147,12 +156,16 @@ def answer(query: str, k: int = 5, *, retrieval: str = "bm25",
         query: La domanda.
         k: Fonti da usare come contesto.
         retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
+        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
         processed_dir: Dove si trova l'indice.
     """
     from src.generator import Generator  # torch import is slow
 
     text, k, retrieval = _query(query), _positive(k), _retrieval(retrieval)
-    sources = Retriever(processed_dir, retrieval=retrieval).search(text, k)
+    retriever = Retriever(processed_dir, retrieval=retrieval,
+                          cache=not no_cache)
+    sources = retriever.search(text, k)
+    retriever.save_cache()
     _print_sources(sources)
     print("\n" + Generator().answer(text, sources))
 
@@ -243,7 +256,7 @@ def tui(*, processed_dir: str = PROCESSED_DIR) -> None:
 
 
 def api(port: int = 8000, *, host: str = "127.0.0.1",
-        retrieval: str = "bm25",
+        retrieval: str = "bm25", no_cache: bool = False,
         processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `api` (bonus 5): serve /search e /answer su un HTTP locale.
 
@@ -254,13 +267,14 @@ def api(port: int = 8000, *, host: str = "127.0.0.1",
         port: Porta da ascoltare.
         host: Interfaccia da ascoltare (default: solo la macchina locale).
         retrieval: `bm25` (default), `hybrid` o `embeddings`.
+        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
         processed_dir: Dove si trova l'indice.
     """
     from src.api import Api, serve
 
     _positive(port, "port")
     _retrieval(retrieval)
-    server = Api(processed_dir, retrieval=retrieval)
+    server = Api(processed_dir, retrieval=retrieval, cache=not no_cache)
     serve(server, host, port)
 
 
@@ -278,6 +292,12 @@ def main() -> None:
         })
     except KeyboardInterrupt:
         sys.exit(130)
+    except ValidationError as e:  # pydantic's own dump is several lines
+        first = e.errors()[0]
+        where = ".".join(str(p) for p in first["loc"]) or "input"
+        print(f"Error: invalid {e.title} JSON ({e.error_count()} error(s)),"
+              f" first at {where}: {first['msg']}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:  # the subject forbids tracebacks at the CLI
         print(f"Error: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)
