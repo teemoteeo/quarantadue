@@ -33,11 +33,12 @@ MAX_BODY = 1_000_000
 
 
 class ApiRequest(BaseModel):
-    """Corpo di `/search` e `/answer`; `retrieval` è opzionale."""
+    """Corpo di `/search` e `/answer`; senza `retrieval` vale quella del
+    server (`api --retrieval`)."""
 
     question: str = ""
     k: int = 5
-    retrieval: str = "bm25"
+    retrieval: str | None = None
 
 
 class Api:
@@ -93,7 +94,8 @@ class Api:
             return 400, {"error": "question must not be empty"}
         if payload.k < 1:
             return 400, {"error": "k must be >= 1"}
-        if payload.retrieval not in RETRIEVAL_MODES:
+        if payload.retrieval is not None \
+                and payload.retrieval not in RETRIEVAL_MODES:
             return 400, {
                 "error": (
                     f"retrieval must be one of {RETRIEVAL_CHOICES}, "
