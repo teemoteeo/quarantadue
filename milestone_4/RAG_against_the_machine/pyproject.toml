@@ -8,6 +8,7 @@ dependencies = [
     "fire>=0.5",
     "tqdm>=4.66",
     "rank-bm25>=0.2",
+    "sentence-transformers>=5.1.0",
     "transformers>=5.17.0",
     "torch>=2.14.0",
     "numpy>=2.2.6",
@@ -26,7 +27,7 @@ exclude = ["^data/", "^\\.cache/"]
 
 [[tool.mypy.overrides]]
 # no type stubs published for these
-module = ["fire", "rank_bm25"]
+module = ["fire", "rank_bm25", "sentence_transformers"]
 ignore_missing_imports = true
 
 # campus machines are CPU-only: skip the multi-GB CUDA build of torch on Linux

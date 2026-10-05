@@ -29,6 +29,17 @@ class Chunk:
     first_character_index: int
     last_character_index: int
 
+    def bounds(self) -> list[int]:
+        """(inizio, fine): per il confronto dell'indice incrementale."""
+        return [self.first_character_index, self.last_character_index]
+
+
+def read_file_text(path: str) -> str:
+    """Legge un file del corpus; stessi criteri di `walk` (i ``\r\n``
+    restano, quindi gli indici combaciano con il file su disco)."""
+    with open(path, encoding="utf-8", errors="replace", newline="") as f:
+        return f.read()
+
 
 def _sub_chunk(
     content: str,
@@ -158,10 +169,7 @@ def walk(raw_dir: str | Path, max_chunk_size: int) -> list[Chunk]:
              if p.suffix.lower() in BOUNDS and p.is_file()]
     for path in tqdm(files, desc="Chunking", unit="file"):
         try:
-            # newline="" keeps \r\n, so offsets index the file on disk
-            with open(path, encoding="utf-8", errors="replace",
-                      newline="") as f:
-                content = f.read()
+            content = read_file_text(str(path))
         except OSError as e:
             tqdm.write(f"skipping {path}: {e}")
             continue
