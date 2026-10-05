@@ -1,15 +1,14 @@
-"""API HTTP locale (bonus 5): interrogare l'indice e farsi rispondere
-senza CLI.
+"""API HTTP locale (bonus 5): cercare e rispondere senza la CLI.
 
-`http.server` della stdlib: zero dipendenze, sufficientemente robusto per
-un servizio di sviluppo a una sola macchina. Gli endpoint:
+`http.server` della stdlib: zero dipendenze, abbastanza robusto per
+un servizio locale su una sola macchina. Gli endpoint:
 
 - `POST /search`  {"question", "k", "retrieval"?} -> StudentSearchResults
-- `POST /answer`  same body -> StudentSearchResultsAndAnswer
+- `POST /answer`  stesso corpo -> StudentSearchResultsAndAnswer
 - `GET  /healthz` -> {"status": "ok"}
 
-I corpi di risposta sono i modelli pydantic del subject, quindi il JSON
-volante è lo stesso dei file. `Qwen3` si carica pigro alla prima `/answer`.
+Le risposte sono i modelli pydantic del subject: il JSON inviato è
+identico a quello dei file. `Qwen3` si carica pigro alla prima `/answer`.
 """
 
 import json
@@ -33,8 +32,10 @@ MAX_BODY = 1_000_000
 
 
 class ApiRequest(BaseModel):
-    """Corpo di `/search` e `/answer`; senza `retrieval` vale quella del
-    server (`api --retrieval`)."""
+    """Corpo di `/search` e `/answer`.
+
+    Senza `retrieval` vale quella del server (`api --retrieval`).
+    """
 
     question: str = ""
     k: int = 5
@@ -73,7 +74,7 @@ class Api:
         return self._generator
 
     def handle(self, path: str, body: bytes) -> tuple[int, dict[str, Any]]:
-        """Smanda un'HTTP request già letta: (status, corpo JSON).
+        """Gestisce una request HTTP già letta: (status, corpo JSON).
 
         Ogni input degenere (JSON malformato, k=0, query vuota) dà
         4xx e un corpo leggibile: l'API non fa mai crollare il server.
@@ -142,6 +143,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        """GET: solo `/healthz` ha senso, il resto dà 404."""
         try:
             status, payload = self.api.handle(self.path.split("?")[0], b"{}")
         except Exception as e:
@@ -149,6 +151,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._reply(status, payload)
 
     def do_POST(self) -> None:
+        """POST: legge il corpo (max `MAX_BODY` byte) e lo passa all'`Api`."""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:

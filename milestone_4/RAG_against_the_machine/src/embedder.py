@@ -1,9 +1,8 @@
-"""Embedding model for the vector index (bonus: semantic search).
+"""Modello di embedding per la ricerca semantica (bonus 1+2).
 
-all-MiniLM-L6-v2 is a small BERT-style model: 384-dim vectors, a few hundred
-MB of weights, comfortable on a CPU-only machine. It is the semantic half
-of hybrid retrieval: it matches a paraphrased question to code that uses
-different words.
+all-MiniLM-L6-v2 è un piccolo modello tipo BERT: vettori da 384, ~90 MB
+di pesi, va bene su una macchina solo CPU. È la metà semantica di
+`hybrid`: collega una domanda parafrasata a codice che usa altre parole.
 """
 
 from collections.abc import Sequence

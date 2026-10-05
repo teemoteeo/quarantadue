@@ -31,8 +31,11 @@ class Chunk:
 
 
 def read_file_text(path: str) -> str:
-    """Legge un file del corpus; stessi criteri di `walk` (i ``\r\n``
-    restano, quindi gli indici combaciano con il file su disco)."""
+    r"""Legge un file del corpus come testo, senza tradurre gli a capo.
+
+    `newline=""` tiene i `\r\n`: gli indici combaciano col file su disco.
+    `errors="replace"`: un byte non UTF-8 non ferma tutto.
+    """
     with open(path, encoding="utf-8", errors="replace", newline="") as f:
         return f.read()
 
@@ -108,7 +111,7 @@ def chunk_at(
 
 
 def python_bounds(content: str) -> list[int]:
-    """Indici dove inizia ogni istruzione di primo livello di un .py.
+    r"""Indici dove inizia ogni istruzione di primo livello di un .py.
 
     Usa `ast` e non una regex: è sicuro anche con `def` dentro stringhe.
     I decoratori restano con la loro funzione. `ast` dà righe, quindi
@@ -150,12 +153,10 @@ BOUNDS = {
 def walk(raw_dir: str | Path, max_chunk_size: int) -> list[Chunk]:
     """Taglia in chunk ogni file .py/.md/.txt sotto `raw_dir`.
 
-    Chiamata da `build_index`. `BOUNDS` sceglie i confini per tipo di
-    file, `chunk_at` crea i chunk.
-    - `file_path` resta relativo alla cartella di lancio: va lanciato dalla
-      radice, la moulinette vuole percorsi `data/raw/...`.
-    - `newline=""` tiene i `\r\n`: gli indici coincidono col file su disco.
-    - `errors="replace"`: un byte non UTF-8 non ferma tutto.
+    Chiamata da `build_index`. `read_file_text` legge, `BOUNDS` sceglie i
+    confini per tipo di file, `chunk_at` crea i chunk.
+    `file_path` resta relativo alla cartella di lancio: va lanciato dalla
+    radice, la moulinette vuole percorsi `data/raw/...`.
 
     Returns:
         Tutti i chunk, file in ordine alfabetico. File illeggibili saltati.

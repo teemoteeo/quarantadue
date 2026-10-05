@@ -74,8 +74,10 @@ def tokenize(text: str, part_identifiers: bool = True) -> list[str]:
 
 
 def _chunk_terms(chunk: Chunk) -> list[str]:
-    """Termini di un chunk: il percorso conta (una domanda su LoRA
-    favorisce `docs/features/lora.md`)."""
+    """Termini di un chunk, percorso del file compreso.
+
+    Il percorso conta: una domanda su LoRA favorisce `docs/features/lora.md`.
+    """
     return tokenize(chunk.file_path + "\n" + chunk.content)
 
 
@@ -275,9 +277,9 @@ def _save_embeddings(
 
 
 def _index_identity(processed_dir: str) -> str:
-    """Firma della cache su disco: (mtime_ns, size) di `index.pkl`,
-    `embeddings.pkl` e di questo modulo (bonus 4).
+    """Firma della cache su disco (bonus 4).
 
+    (mtime_ns, size) di `index.pkl`, `embeddings.pkl` e di questo modulo.
     Un `index` (anche incrementale) o una modifica al codice di ricerca
     cambiano la firma, e la cache vecchia si butta: mai risultati stantii.
     `max_chunk_size` è dentro `index.pkl`, quindi già nella firma.
@@ -308,20 +310,22 @@ class Retriever:
 
     Attributes:
         sources: (percorso, inizio, fine) per chunk; l'indice nella lista
-            è il numero del chunk in BM25.
-        bm25: Il modello BM25.
-        retrieval: modalità di ricerca di default (`bm25`).
-        _embeddings: matrice (n_chunk, 384) di vettori normalizzati,
-            caricata a prima ricerca che ne ha bisogno.
-        _cache: hash(modalità|domanda|k) -> fonti; le query ripetute non
-            ricomputano, nemmeno fra un processo e l'altro: `save_cache`
+            è il numero del chunk in BM25. Property: carica `index.pkl`.
+        bm25: Il modello BM25. Property: carica `index.pkl`.
+        retrieval: Modalità di ricerca di default (`bm25`).
+        _embeddings: Matrice (n_chunk, 384) di vettori normalizzati,
+            caricata alla prima ricerca che ne ha bisogno.
+        _cache: sha256(modalità|domanda|k) -> fonti; le query ripetute non
+            si ricalcolano, nemmeno fra un processo e l'altro: `save_cache`
             la scrive in `query_cache.json` (bonus 4).
     """
 
     def __init__(self, processed_dir: str,
                  retrieval: str = "bm25", *, cache: bool = True) -> None:
-        """Prepara la ricerca; `index.pkl` si carica alla prima domanda
-        non in cache (e `embeddings.pkl` solo se serve).
+        """Prepara la ricerca senza ancora caricare l'indice.
+
+        `index.pkl` si carica alla prima domanda non in cache,
+        `embeddings.pkl` solo se la modalità lo richiede.
 
         Args:
             processed_dir: Cartella dell'indice.
@@ -372,8 +376,11 @@ class Retriever:
         return self._load_index()["bm25"]
 
     def _read_cache(self) -> dict[str, Any]:
-        """Legge `query_cache.json`; assente, illeggibile o di un altro
-        indice (firma diversa) -> cache vuota, mai un crash."""
+        """Legge `query_cache.json` con i risultati salvati.
+
+        Assente, illeggibile o di un altro indice (firma diversa) ->
+        cache vuota, mai un crash.
+        """
         try:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
             if data["identity"] == self._identity \
@@ -409,8 +416,11 @@ class Retriever:
                 tmp.unlink(missing_ok=True)
 
     def _load_embed_matrix(self) -> np.ndarray | None:
-        """Carica `embeddings.pkl` una volta; None se non esiste (o non
-        combacia col numero di chunk: indice parzialmente ricostruito)."""
+        """Carica `embeddings.pkl` una volta.
+
+        None se non esiste o non combacia col numero di chunk (indice
+        ricostruito senza `--embeddings`).
+        """
         if not self._embeddings_loaded:
             self._embeddings_loaded = True
             path = Path(self._processed_dir) / EMBEDDINGS_FILE
@@ -469,7 +479,7 @@ class Retriever:
         """Restituisce le k fonti migliori nella modalità `retrieval`.
 
         Usata da `search`, `search_dataset`, `answer`, `api` e dalla TUI.
-        `retrieval` None usa quello del costruttore (default `bm25`).
+        `retrieval` None usa quella del costruttore (default `bm25`).
         - `bm25`: la via d'origine, stessi risultati di prima.
         - `embeddings`: top-k per similarità coseno; senza
           `embeddings.pkl` cade su `bm25` con un avviso, mai un crash.
