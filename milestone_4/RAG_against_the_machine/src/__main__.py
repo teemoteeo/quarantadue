@@ -17,8 +17,7 @@ from src.models import (
     AnsweredQuestion, MinimalAnswer, MinimalSearchResults, MinimalSource,
     RagDataset, StudentSearchResults, StudentSearchResultsAndAnswer,
 )
-from src.retriever import RETRIEVAL_CHOICES, RETRIEVAL_MODES, Retriever, \
-    build_index
+from src.retriever import Retriever, build_index
 
 PROCESSED_DIR = "data/processed"
 
@@ -45,14 +44,6 @@ def _positive(value: object, name: str = "k") -> int:
     return value
 
 
-def _retrieval(value: object) -> str:
-    """Controlla la modalità di ricerca (bm25/hybrid/embeddings)."""
-    if value not in RETRIEVAL_MODES:
-        raise ValueError(
-            f"retrieval must be one of {RETRIEVAL_CHOICES}, got {value!r}")
-    return str(value)
-
-
 def _save(model: StudentSearchResults | StudentSearchResultsAndAnswer,
           save_directory: str, name: str) -> Path:
     """Salva il modello in JSON in `save_directory/name` (crea la cartella)."""
@@ -71,49 +62,28 @@ def _print_sources(sources: list[MinimalSource]) -> None:
               f"[{s.first_character_index}:{s.last_character_index}]")
 
 
-def index(max_chunk_size: int = 2000, *, embeddings: bool = False,
-          incremental: bool = False, raw_dir: str = "data/raw",
+def index(max_chunk_size: int = 2000, *, raw_dir: str = "data/raw",
           processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `index`: crea l'indice BM25 (vedi `build_index`), una volta.
 
     Args:
         max_chunk_size: Lunghezza massima di un chunk, da 1 a 2000.
-        embeddings: Bonus 1+2: salva anche la matrice dei vettori
-            all-MiniLM (embeddings.pkl); serve a `--retrieval embeddings`
-            e `hybrid`. Il default (False) lascia il comportamento
-            d'origine.
-        incremental: Bonus 3: con un indice precedente, ricrea solo i
-            file nuovi o cambiati.
         raw_dir: Cartella del corpus.
         processed_dir: Dove scrivere l'indice.
     """
     size = _positive(max_chunk_size, "max_chunk_size")
-    n = build_index(raw_dir, processed_dir, size, embeddings=embeddings,
-                    incremental=incremental)
+    n = build_index(raw_dir, processed_dir, size)
     print(f"Ingestion complete! Indexed {n} chunks under {processed_dir}/")
 
 
-def search(query: str, k: int = 5, *, retrieval: str = "bm25",
-           no_cache: bool = False,
+def search(query: str, k: int = 5, *,
            processed_dir: str = PROCESSED_DIR) -> None:
-    """Comando `search`: stampa le k fonti migliori per una domanda.
-
-    Args:
-        query: La domanda.
-        k: Fonti da stampare.
-        retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
-        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
-        processed_dir: Dove si trova l'indice.
-    """
-    text, k, retrieval = _query(query), _positive(k), _retrieval(retrieval)
-    retriever = Retriever(processed_dir, retrieval=retrieval,
-                          cache=not no_cache)
-    _print_sources(retriever.search(text, k))
-    retriever.save_cache()
+    """Comando `search`: stampa le k fonti migliori per una domanda."""
+    text, k = _query(query), _positive(k)
+    _print_sources(Retriever(processed_dir).search(text, k))
 
 
 def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
-                   retrieval: str = "bm25", no_cache: bool = False,
                    processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `search_dataset`: cerca le fonti di ogni domanda.
 
@@ -124,48 +94,33 @@ def search_dataset(dataset_path: str, save_directory: str, k: int = 10, *,
         dataset_path: Dataset JSON (`RagDataset`).
         save_directory: Cartella di uscita.
         k: Fonti per domanda.
-        retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
-        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
         processed_dir: Dove si trova l'indice.
     """
-    k, retrieval = _positive(k), _retrieval(retrieval)
+    k = _positive(k)
     dataset = RagDataset.model_validate_json(
         Path(dataset_path).read_text(encoding="utf-8"))
-    retriever = Retriever(processed_dir, retrieval=retrieval,
-                          cache=not no_cache)
+    retriever = Retriever(processed_dir)
     results = StudentSearchResults(k=k, search_results=[
         MinimalSearchResults(
             question_id=q.question_id, question=q.question,
             retrieved_sources=retriever.search(q.question, k))
         for q in tqdm(dataset.rag_questions, desc="Searching", unit="q")
     ])
-    retriever.save_cache()
     out = _save(results, save_directory, Path(dataset_path).name)
     print(f"Saved student_search_results to {out}")
 
 
-def answer(query: str, k: int = 5, *, retrieval: str = "bm25",
-           no_cache: bool = False,
+def answer(query: str, k: int = 5, *,
            processed_dir: str = PROCESSED_DIR) -> None:
     """Comando `answer`: tutta la pipeline RAG su una domanda.
 
     Stampa fonti e risposta. `Generator` si importa qui e non in cima:
     porta `torch`, lento, e i comandi senza generazione restano veloci.
-
-    Args:
-        query: La domanda.
-        k: Fonti da usare come contesto.
-        retrieval: `bm25` (default), `hybrid` o `embeddings` (bonus 1+2).
-        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
-        processed_dir: Dove si trova l'indice.
     """
     from src.generator import Generator  # torch import is slow
 
-    text, k, retrieval = _query(query), _positive(k), _retrieval(retrieval)
-    retriever = Retriever(processed_dir, retrieval=retrieval,
-                          cache=not no_cache)
-    sources = retriever.search(text, k)
-    retriever.save_cache()
+    text, k = _query(query), _positive(k)
+    sources = Retriever(processed_dir).search(text, k)
     _print_sources(sources)
     print("\n" + Generator().answer(text, sources))
 
@@ -255,29 +210,6 @@ def tui(*, processed_dir: str = PROCESSED_DIR) -> None:
     run_tui(processed_dir)
 
 
-def api(port: int = 8000, *, host: str = "127.0.0.1",
-        retrieval: str = "bm25", no_cache: bool = False,
-        processed_dir: str = PROCESSED_DIR) -> None:
-    """Comando `api` (bonus 5): serve /search e /answer su un HTTP locale.
-
-    Il modello Qwen3 si carica pigro alla prima richiesta /answer.
-    Ctrl+C ferma il server.
-
-    Args:
-        port: Porta da ascoltare.
-        host: Interfaccia da ascoltare (default: solo la macchina locale).
-        retrieval: `bm25` (default), `hybrid` o `embeddings`.
-        no_cache: Bonus 4: ignora e non scrive `query_cache.json`.
-        processed_dir: Dove si trova l'indice.
-    """
-    from src.api import Api, serve
-
-    _positive(port, "port")
-    _retrieval(retrieval)
-    server = Api(processed_dir, retrieval=retrieval, cache=not no_cache)
-    serve(server, host, port)
-
-
 def main() -> None:
     """Avvia Fire; ogni errore diventa una riga `Error: ...`, mai un traceback.
 
@@ -288,7 +220,7 @@ def main() -> None:
             "index": index, "search": search,
             "search_dataset": search_dataset, "answer": answer,
             "answer_dataset": answer_dataset, "evaluate": evaluate,
-            "tui": tui, "api": api,
+            "tui": tui,
         })
     except KeyboardInterrupt:
         sys.exit(130)

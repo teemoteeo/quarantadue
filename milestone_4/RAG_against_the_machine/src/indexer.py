@@ -30,16 +30,6 @@ class Chunk:
     last_character_index: int
 
 
-def read_file_text(path: str) -> str:
-    r"""Legge un file del corpus come testo, senza tradurre gli a capo.
-
-    `newline=""` tiene i `\r\n`: gli indici combaciano col file su disco.
-    `errors="replace"`: un byte non UTF-8 non ferma tutto.
-    """
-    with open(path, encoding="utf-8", errors="replace", newline="") as f:
-        return f.read()
-
-
 def _sub_chunk(
     content: str,
     file_path: str,
@@ -151,12 +141,14 @@ BOUNDS = {
 
 
 def walk(raw_dir: str | Path, max_chunk_size: int) -> list[Chunk]:
-    """Taglia in chunk ogni file .py/.md/.txt sotto `raw_dir`.
+    r"""Taglia in chunk ogni file .py/.md/.txt sotto `raw_dir`.
 
-    Chiamata da `build_index`. `read_file_text` legge, `BOUNDS` sceglie i
-    confini per tipo di file, `chunk_at` crea i chunk.
-    `file_path` resta relativo alla cartella di lancio: va lanciato dalla
-    radice, la moulinette vuole percorsi `data/raw/...`.
+    Chiamata da `build_index`. `BOUNDS` sceglie i confini per tipo di
+    file, `chunk_at` crea i chunk.
+    - `file_path` resta relativo alla cartella di lancio: va lanciato dalla
+      radice, la moulinette vuole percorsi `data/raw/...`.
+    - `newline=""` tiene i `\r\n`: gli indici coincidono col file su disco.
+    - `errors="replace"`: un byte non UTF-8 non ferma tutto.
 
     Returns:
         Tutti i chunk, file in ordine alfabetico. File illeggibili saltati.
@@ -166,7 +158,10 @@ def walk(raw_dir: str | Path, max_chunk_size: int) -> list[Chunk]:
              if p.suffix.lower() in BOUNDS and p.is_file()]
     for path in tqdm(files, desc="Chunking", unit="file"):
         try:
-            content = read_file_text(str(path))
+            # newline="" keeps \r\n, so offsets index the file on disk
+            with open(path, encoding="utf-8", errors="replace",
+                      newline="") as f:
+                content = f.read()
         except OSError as e:
             tqdm.write(f"skipping {path}: {e}")
             continue
