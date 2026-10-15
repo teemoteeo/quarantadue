@@ -28,6 +28,7 @@ SYSTEM_PROMPT = (
     "classes, flags or endpoints the context shows. If the context does "
     "not contain the answer, say you could not find it in the sources."
 )
+NO_CONTEXT_ANSWER = "I could not find the answer in the sources."
 
 
 class Generator:
@@ -42,22 +43,34 @@ class Generator:
         self.model = AutoModelForCausalLM.from_pretrained(
             MODEL_NAME, dtype=torch.float32)  # bf16 is ~6x slower on CPU
 
-    def _inputs(self, question: str,
-                sources: list[MinimalSource]) -> BatchEncoding:
-        """Prompt di chat tokenizzato per `stream`.
+    @staticmethod
+    def _context(sources: list[MinimalSource]) -> list[str]:
+        """Testo delle fonti, ognuna preceduta dal suo percorso.
 
-        Messaggio di sistema (`SYSTEM_PROMPT`) + messaggio utente con le fonti
-        (ognuna preceduta dal suo percorso) e la domanda. Le fonti entrano
-        dalla migliore finché stanno in `MAX_CONTEXT_CHARS`.
-        `enable_thinking=False`: niente ragionamento, molto più veloce su CPU.
+        Le fonti entrano dalla migliore finché stanno in `MAX_CONTEXT_CHARS`.
+        Una fonte illeggibile (file sparito, percorso a mano in un JSON) si
+        salta: non deve far perdere tutto un `answer_dataset`.
         """
-        context, used = [], 0
+        context: list[str] = []
+        used = 0
         for s in sources:
-            text = f"--- {s.file_path}\n{read_source(s)}"
+            try:
+                text = f"--- {s.file_path}\n{read_source(s)}"
+            except OSError:
+                continue
             if used + len(text) > MAX_CONTEXT_CHARS:
                 break
             context.append(text)
             used += len(text)
+        return context
+
+    def _inputs(self, question: str, context: list[str]) -> BatchEncoding:
+        """Prompt di chat tokenizzato per `stream`.
+
+        Messaggio di sistema (`SYSTEM_PROMPT`) + messaggio utente con il
+        contesto (vedi `_context`) e la domanda.
+        `enable_thinking=False`: niente ragionamento, molto più veloce su CPU.
+        """
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": "Context:\n" + "\n\n".join(context)
@@ -86,8 +99,14 @@ class Generator:
         cui si leggono i pezzi. Un errore nel thread viene salvato, lo
         streamer chiuso (se no si aspetterebbe per sempre) e l'errore
         rilanciato alla fine.
+        Senza contesto il modello non parte: risponderebbe a memoria
+        (inventando), quindi si restituisce `NO_CONTEXT_ANSWER`.
         """
-        inputs = self._inputs(question, sources)
+        context = self._context(sources)
+        if not context:
+            yield NO_CONTEXT_ANSWER
+            return
+        inputs = self._inputs(question, context)
         streamer = TextIteratorStreamer(
             self.tokenizer, skip_prompt=True, skip_special_tokens=True)
         errors: list[Exception] = []
